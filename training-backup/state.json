@@ -526,7 +526,7 @@
     "stage": 7,
     "start_steps": 5048085471,
     "seconds": 0,
-    "wall_seconds": 180.04871631899914,
+    "wall_seconds": 1509.9963054010004,
     "trained": false
   },
   "status": "paused",
@@ -538,7 +538,8 @@
     "player_metrics": true,
     "throughput_profile": "cpu-20k",
     "continuous": true,
-    "fuzzed_kickoffs": true
+    "fuzzed_kickoffs": true,
+    "rewards": "v6"
   },
   "frozen_versions": {
     "2836021944": {
