@@ -195,6 +195,35 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(strip_cadence(train_ranked.recipe_train_args(known)),
                          strip_cadence(state['config']['train_args']))
 
+    def test_runtime_rewards_are_a_runtime_override_not_a_recipe_change(self):
+        """A reward change must leave the pinned recipe alone, or the campaign stops resuming."""
+        state = self.state()
+        cmd = self.build(runtime_rewards='v6')
+        self.assertEqual(cmd[cmd.index('--runtime-rewards') + 1], 'v6')
+        # The pinned recipe still carries the original preset, and the override is appended after it
+        # so it wins at the trainer's argv level.
+        self.assertIn('Goal=600,Save=65', cmd)   # the pinned recipe's own preset, unchanged
+        # It must come after the pinned --rewards, which is what makes the later flag win.
+        self.assertGreater(cmd.index('--runtime-rewards'),
+                           cmd.index('--rewards'))
+        known, passthrough = self.replay(cmd)
+        self.assertEqual(strip_cadence(train_ranked.recipe_train_args(known)),
+                         strip_cadence(state['config']['train_args']))
+        # ... and train_ranked persists it as a runtime override, so the next resume picks it up from
+        # state.json without the flag (asserted through the builder, not by re-running the campaign).
+        remembered = self.state()
+        remembered['runtime_overrides']['rewards'] = 'v6'
+        self.assertIn('--runtime-rewards',
+                      resume_training.build_resume_command(
+                          remembered, resume_training.ROOT / 'results/weights1700-v3/campaign'))
+
+    def test_reward_specs_are_validated_against_the_bots_own_tables(self):
+        train_ranked.validate_rewards('v6')
+        train_ranked.validate_rewards('Goal=750,Save=30')
+        for bad in ('v7', 'Goal=750,NotAReward=2', 'Goal=750,garbage'):
+            with self.assertRaises(ValueError):
+                train_ranked.validate_rewards(bad)
+
     def test_no_wandb_keeps_the_backup_worker(self):
         cmd = self.build(wandb_online=False)
         self.assertIn('--github-backup', cmd)

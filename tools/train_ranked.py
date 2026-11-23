@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -485,6 +486,100 @@ def recipe_train_args(args):
     return train_args
 
 
+# The save cadence is re-derived every cycle (profile_train_args / save_cadence_args) from the
+# measured throughput, so it is deliberately not part of a campaign's frozen identity: a resume only
+# has to reproduce the training recipe, and a faster runner may legitimately save less often.
+DERIVED_TRAIN_ARGS = {'--ts-per-save', '--ts-per-save-after-first'}
+
+
+def pinned_identity(config):
+    """The part of a campaign config that a resume must reproduce exactly."""
+    identity = {k: v for k, v in config.items() if k != 'train_args'}
+    tokens, i = [], 0
+    args = list(config.get('train_args') or [])
+    while i < len(args):
+        if args[i] in DERIVED_TRAIN_ARGS:
+            i += 2
+            continue
+        tokens.append(args[i])
+        i += 1
+    identity['train_args'] = tokens
+    return identity
+
+
+def merge_native_args(train_args, native_args):
+    """Fold native passthrough into the pinned preset, in the preset's own order.
+
+    A campaign pins `train_args` and refuses to resume unless a resume reproduces it token for
+    token, so passthrough must not be appended at the end: a value that the preset already carries
+    is updated where it sits, and only genuinely new flags are appended.
+    """
+    merged = list(train_args)
+    i = 0
+    while i < len(native_args):
+        flag = native_args[i]
+        value = native_args[i + 1] if i + 1 < len(native_args) and not native_args[i + 1].startswith('--') else None
+        if flag in merged:
+            at = merged.index(flag)
+            if value is None:
+                pass                      # boolean flag the preset already sets
+            elif at + 1 < len(merged) and not merged[at + 1].startswith('--'):
+                merged[at + 1] = value
+            else:
+                merged.insert(at + 1, value)
+        else:
+            merged.append(flag)
+            if value is not None:
+                merged.append(value)
+        i += 2 if value is not None else 1
+    return merged
+
+
+REWARD_PRESET_RE = re.compile(r'\{\s*"(v\d+)",\s*((?:"[^"]*"\s*)+)\}')
+REWARD_NAMES_RE = re.compile(r'\{\s*"([A-Za-z]+)",\s*[-\d.]')
+
+
+def validate_rewards(spec):
+    """Reject a --runtime-rewards value the bot would reject, before any training starts.
+
+    The bot owns the preset table and the Name=weight parser; a typo there would otherwise only surface
+    inside a cycle, after the pinned recipe had already been updated. The names are read out of the
+    reward definitions so this can never drift from them.
+    """
+    source = (REPO / 'src' / 'ExampleMain.cpp').read_text()
+    presets = {name for name, _ in REWARD_PRESET_RE.findall(source)}
+    names = set(REWARD_NAMES_RE.findall(source[source.index('REWARD_DEFS = {'):source.index('REWARD_PRESETS = {')]))
+    if '=' not in spec:
+        if spec not in presets:
+            raise ValueError(f'--runtime-rewards {spec!r} is not a preset; known: {sorted(presets)}')
+        return
+    unknown = [item.split('=')[0] for item in spec.split(',')
+               if item.split('=')[0] not in names or len(item.split('=')) != 2]
+    if unknown:
+        raise ValueError(f'--runtime-rewards has unknown reward names {unknown}; '
+                         f'known: {sorted(names)}')
+
+
+def config_drift(requested, stored, out):
+    """Explain why a resumed campaign's settings no longer match the ones it pinned."""
+    problems = []
+    requested, stored = pinned_identity(requested), pinned_identity(stored)
+    for key in sorted(set(requested) | set(stored)):
+        if requested.get(key) == stored.get(key):
+            continue
+        if key == 'train_args':
+            mine, theirs = list(requested['train_args']), list(stored['train_args'])
+            extra = [t for t in mine if t not in theirs]
+            missing = [t for t in theirs if t not in mine]
+            problems.append(f'train_args differs (unexpected {extra}, missing {missing})')
+        else:
+            problems.append(f'{key}: stored {stored.get(key)!r} != requested {requested.get(key)!r}')
+    stored_pool = stored.get('pool_sha256')
+    if stored_pool is not None and pool_digest(out / 'pool') != stored_pool:
+        problems.append('policy pool digest changed')
+    return '; '.join(problems) + '. Use the original settings or a fresh --out.'
+
+
 def campaign(args):
     out, learner = args.out, args.out / 'learner'
     statefile = out / 'state.json'
@@ -495,7 +590,7 @@ def campaign(args):
         raise ValueError(f'Build {args.bot} before starting the campaign')
     plan = minutes_plan(args.minutes, args.pilot_minutes, args.block_minutes)
     train_args = recipe_train_args(args)
-    train_args = [*train_args, *getattr(args, 'native_args', [])]
+    train_args = merge_native_args(train_args, getattr(args, 'native_args', []))
     config = dict(base=str(base), preset_sha256=hashlib.sha256((REPO / 'train_1v1_2v2_3v3.sh').read_bytes()).hexdigest(),
                   parent_steps=int(base.name), seed=args.seed, screen_seed=SCREEN,
                   confirm_seed=CONFIRM, audit_seed=getattr(args, 'audit_seed', AUDIT), rounds=args.rounds, train_args=train_args,
@@ -557,8 +652,10 @@ def campaign(args):
             }
         write(statefile, state)
     state = read(statefile)
-    if config != state['config'] or pool_digest(out / 'pool') != state['pool_sha256']:
-        raise ValueError('Campaign settings or frozen pool changed. Use the original settings or a fresh --out.')
+    if (pinned_identity(config) != pinned_identity(state['config'])
+            or pool_digest(out / 'pool') != state['pool_sha256']):
+        raise ValueError('Campaign settings or frozen pool changed; '
+                         + config_drift(config, state['config'], out))
     # Old policies are immutable records: pin every version's files once and re-verify them at
     # each cycle boundary, so no later save can re-rate or re-annotate an existing version.
     state.setdefault('frozen_versions', frozen_versions(out / 'pool'))
@@ -626,6 +723,17 @@ def campaign(args):
         cadence_set = True
     else:
         cadence_set = False
+    runtime_rewards = getattr(args, 'runtime_rewards', None)
+    if runtime_rewards:
+        validate_rewards(runtime_rewards)
+        if runtime_overrides.get('rewards') != runtime_rewards:
+            runtime_overrides['rewards'] = runtime_rewards
+            state['runtime_overrides'] = runtime_overrides
+            write(statefile, state)
+        print('Runtime reward override:', runtime_rewards)
+    if runtime_overrides.get('rewards'):
+        # Appended after the pinned recipe, so it wins over the preset train_args carries.
+        runtime_train_args.extend(['--rewards', runtime_overrides['rewards']])
     if runtime_overrides.get('reward_metrics'):
         runtime_train_args.append('--reward-metrics')
     if runtime_overrides.get('player_metrics'):
@@ -956,6 +1064,10 @@ def build_arg_parser():
     parser.add_argument('--skill-minutes', type=float, help='Minutes between internal skill tracker matches')
     parser.add_argument('--ts-per-save', help='Timesteps between local checkpoint saves (e.g. 10m)')
     parser.add_argument('--rewards', help='Native comma-separated reward weights for a fresh experiment')
+    parser.add_argument('--runtime-rewards',
+                        help='Change a running campaign\'s reward preset/weights without touching its pinned '
+                             'training recipe (e.g. v6). Unlike --rewards it leaves config["train_args"] alone, '
+                             'so the campaign still resumes; it is recorded in state.json runtime_overrides.')
     parser.add_argument('--reward-metrics', action='store_true',
                         help='Enable sampled reward-component telemetry for this campaign and persist the choice across resumes')
     parser.add_argument('--player-metrics', action='store_true',

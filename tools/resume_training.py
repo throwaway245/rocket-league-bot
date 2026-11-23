@@ -105,7 +105,8 @@ def native_passthrough(train_args):
 def build_resume_command(state, work, without_services=False, backup_interval=1800,
                          reward_metrics=False, player_metrics=False, throughput_profile=None,
                          continuous=False, evolving_opponents=False, opponent_pool_size=None,
-                         promotion_margin=None, wandb_online=True, wandb_interval=10.0):
+                         promotion_margin=None, wandb_online=True, wandb_interval=10.0,
+                         runtime_rewards=None):
     config = state['config']
     cmd = [sys.executable, str(ROOT / 'tools/train_ranked.py'), '--base', config['base'],
            '--out', str(work.relative_to(ROOT)), '--minutes', str(sum(config['minutes'])),
@@ -127,6 +128,11 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
     trainer_flags, native_flags = split_recipe(config['train_args'])
     for flag in trainer_flags:
         cmd.append('--minibatch' if flag == '--minibatch-size' else flag)
+    rewards = runtime_rewards or (state.get('runtime_overrides') or {}).get('rewards')
+    if rewards:
+        # Rewards are a runtime override, not part of the pinned recipe, so changing them keeps the
+        # campaign resumable (train_ranked appends this after the pinned --rewards, so it wins).
+        cmd += ['--runtime-rewards', rewards]
     if reward_metrics or (state.get('runtime_overrides') or {}).get('reward_metrics'):
         cmd.append('--reward-metrics')
     if player_metrics or (state.get('runtime_overrides') or {}).get('player_metrics'):
@@ -164,6 +170,9 @@ def main():
                         help='Keep the GitHub checkpoint backup but do not stream metrics to W&B')
     parser.add_argument('--reward-metrics', action='store_true',
                         help='Enable and persist sampled reward-component telemetry on the resumed campaign')
+    parser.add_argument('--runtime-rewards',
+                        help='Change the running campaign\'s reward preset/weights (e.g. v6). Leaves the pinned '
+                             'recipe intact, so the campaign still resumes.')
     parser.add_argument('--player-metrics', action='store_true',
                         help='Enable and persist sampled per-player telemetry on the resumed campaign')
     parser.add_argument('--throughput-profile', choices=('cpu-20k',),
@@ -197,7 +206,8 @@ def main():
                                continuous=args.continuous, evolving_opponents=args.evolving_opponents,
                                opponent_pool_size=args.opponent_pool_size,
                                promotion_margin=args.promotion_margin,
-                               wandb_online=not args.no_wandb, wandb_interval=args.wandb_interval)
+                               wandb_online=not args.no_wandb, wandb_interval=args.wandb_interval,
+                               runtime_rewards=args.runtime_rewards)
     print('Resuming only because this script was explicitly invoked.', flush=True)
     subprocess.run(cmd, cwd=ROOT, check=True)
 

@@ -35,7 +35,7 @@ python3 tools/train_ranked.py \
   --github-backup --backup-interval 1800 --wandb-online --wandb-interval 10
 ```
 
-To continue the v5 recipe from the newest canonical checkpoint with a rolling opponent pool that grows from the ten historical policies towards fifteen, in endless train/evaluate cycles:
+To continue the recipe from the newest canonical checkpoint with a rolling opponent pool that grows from the ten historical policies towards fifteen, in endless train/evaluate cycles:
 
 ```bash
 python3 tools/train_ranked.py \
@@ -121,6 +121,53 @@ the run config as `rewards`, `reward_weights`, and `reward_preset`.
 
 Keep `Goal` first when adding a term: a dense reward that out-earns a goal over an episode makes hovering and ball
 chasing optimal, which is exactly the plateau this preset set out to break.
+
+- `v6` — `v5`, rebalanced from a **measurement** of `v5`'s own per-term payouts rather than from reasoning about the
+  code. `Learner` reports every active reward under `Rewards/<ClassName>` in the metrics stream (a sample of arenas,
+  already multiplied by that term's weight), so weighting the samples by each term's share of the total gives the
+  real signal mix. Over 170M timesteps of the live campaign the terms were stable (no drift above 0.006), and the
+  weighted mix was:
+
+  | term | raw | weight | contribution | share |
+  |---|---|---|---|---|
+  | `NearestVelocityToBall` | 0.164 | 0.5 | +0.0820 | **57 %** |
+  | `DirectionalTouch` | 0.0040 | 16 | +0.0645 | 45 % |
+  | `TeamSpacing` | −0.058 | 0.75 | −0.0434 | **30 %** |
+  | `DoubleCommit` | −0.043 | 1 | −0.0425 | **30 %** |
+  | `Goal` | ≈0 | 750 | −0.0344 | 24 % |
+  | `TouchAccel` | 0.0031 | 10 | +0.0314 | 22 % |
+  | `SaveBoost` | 0.407 | 0.05 | +0.0203 | **14 %** |
+  | `Air` | 0.338 | 0.05 | +0.0169 | 12 % |
+
+  Three things fell out of that table:
+
+  1. `NearestVelocityToBall` alone was 57 % of the reward. In 1v1 it is *identical* to the plain
+     `VelocityPlayerToBall` product, whose cheapest optimum is driving straight at the ball irrespective of angle,
+     boost or whether the touch is a good idea — and `v3`/`v4`/`v5` had deliberately switched that family off for
+     exactly this reason. Halved to `0.25`; `DirectionalTouch` (16) stays the touch-quality signal.
+  2. `TeamSpacing` and `DoubleCommit` were **30 % each**, and both are pure penalties for a robot team standing next
+     to itself. A large part of that is the kickoff respawn (cars are *placed* adjacent, so the penalty fires for
+     the first fraction of every episode). Both are now distance-gated (`MIN_BALL_DIST = 400`), so they only judge
+     shape once the cars have had a moment to separate.
+  3. `SaveBoost` was 14 % of the reward at 0.407 raw while being blind to velocity *and* position — its optimum is
+     parking on 100 boost anywhere on the pitch, and it out-earned every ball-directed reward. Replaced by
+     `GoalSideBoostReward` (`sqrt(boost) * closing speed toward own goal`, only while goal-side of the ball), which
+     keeps the "hold boost for the save" incentive and drops the "park on boost" one. At a realistic recovery duty
+     cycle it pays ~4 % of the reward instead of 14 %.
+
+  `BehindBall` is now off by default: `clamp(diff/1000, -0.5, 1)` is maximised by a car parked between the ball and
+  its own goal at any distance, in every mode, while `DefensiveCover` (2v2/3v3) and `SoloDiscipline` (1v1) already
+  pay that positioning *by threat level*, which is the version that actually matters.
+
+  Unchanged on purpose: `Goal=750` stays the anchor, and the whole event/touch-quality family (`Shot 20`, `Save 30`,
+  `ScorerAssist 75`, `GoalSpeed 110`, `ObjectiveBallVel 10`, `DirectionalTouch 16`, `KickoffSpeed 6`) is untouched —
+  the measurement showed no reason to touch them.
+
+- **Changing rewards mid-campaign is a runtime override, not a recipe change.** `python3 tools/resume_training.py
+  --runtime-rewards v6` passes `--runtime-rewards` to `train_ranked.py`, which validates the preset against the bot's
+  own tables, records it under `runtime_overrides.rewards` in `state.json`, and appends it *after* the pinned
+  `--rewards` so it wins at the trainer's argv. The pinned `train_args` is left alone, so the campaign keeps
+  resuming; the next resume picks the override up without the flag.
 
 ## Evolving old-policy pool
 
