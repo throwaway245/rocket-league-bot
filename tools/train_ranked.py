@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Run a staged CPU training campaign, optionally repeating blocks until stopped. Rerun to resume.
-Linux, stdlib only unless --wandb-offline is requested. See RANKED_TRAINING.md for the protocol.
+Linux, stdlib only: W&B logging (direct or offline) is delegated to ranked_wandb.py in a
+separate process and never touches GitHub. See RANKED_TRAINING.md for the protocol.
 """
 import argparse
 import fcntl
 import hashlib
+import importlib.util
 import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -356,6 +359,61 @@ def minutes_plan(total, pilot, block):
     return minutes
 
 
+# Per-profile overrides for the native trainer, appended last so they win over the recipe's
+# values (the argument parser keeps the last occurrence of a flag). Measured on the 2-vCPU
+# CPU runner; see RANKED_TRAINING.md for the numbers.
+THROUGHPUT_PROFILES = {
+    'cpu-20k': ['--games', '64', '--epochs', '1', '--collection-infer-threads', '1'],
+}
+
+
+def profile_train_args(profile, continuous=True, block_minutes=30):
+    """Native flags for a throughput profile, plus a save cadence that never loses a checkpoint.
+
+    Retention: the trainer keeps --keep-checkpoints (2 by default) and the GitHub worker pushes
+    one snapshot per --backup-interval (30 min). A save cadence of half that interval guarantees
+    at least one of the kept checkpoints was still alive when a backup ran, so a hard stop can
+    never cost more than ~15 minutes of training. The first cycle is brief (a stage is only
+    `block_minutes`), so it gets a shorter interval.
+    """
+    args = list(THROUGHPUT_PROFILES.get(profile) or [])
+    if continuous:
+        first = max(2.0, min(15.0, float(block_minutes) / 2.0))
+        args += ['--ts-per-save', f'{first:g}m', '--ts-per-save-after-first', '15m']
+    return args
+
+
+def measured_sps(state, default=20000.0):
+    """The campaign's own measured overall steps/second, newest stage first."""
+    for entry in reversed(state.get('history') or []):
+        if entry.get('steps_per_second'):
+            return float(entry['steps_per_second'])
+    return default
+
+
+def save_cadence_args(state, continuous=False, block_minutes=30, backup_interval=1800,
+                      keep=2, default_sps=20000.0):
+    """Return `--ts-per-save` flags so a checkpoint always outlives the next GitHub backup.
+
+    The native trainer keeps only the newest `keep` checkpoints while the backup worker pushes one
+    snapshot per `backup_interval`, so the interval between saves must stay below
+    `backup_interval * (keep - 1)`. Timesteps are converted with the campaign's measured
+    steps/second, then capped at that budget (and at half the stage, so a stage saves at least
+    twice). A continuous campaign's first stage is only `block_minutes` long, so it gets a shorter
+    first interval instead of slipping through the regular one.
+    """
+    sps = measured_sps(state, default_sps)
+    budget_s = max(60.0, float(backup_interval) * max(1, int(keep) - 1))
+    stage_s = max(60.0, float(block_minutes) * 60.0)
+    interval_s = min(budget_s, stage_s / 2.0)
+    regular_min = max(1.0, round(interval_s / 60.0, 1))
+    flags = ['--ts-per-save', f'{regular_min:g}m']
+    if continuous:
+        first_min = max(1.0, min(regular_min, round(float(block_minutes) / 2.0, 1)))
+        flags += ['--ts-per-save-after-first', f'{first_min:g}m']
+    return flags
+
+
 def budget_for_stage(plan, stage, continuous=False, block=15):
     """Return a cycle budget; continuous runs repeat one fixed block after the parent rating."""
     if continuous:
@@ -378,15 +436,13 @@ def beats_strongest(screen, confirm, pool, margin):
             confirm['Ranking'] >= strongest + margin), strongest, version
 
 
-def campaign(args):
-    out, learner = args.out, args.out / 'learner'
-    statefile = out / 'state.json'
-    base = checkpoint(args.base) if not statefile.exists() else Path(args.base)
-    if not base.name.isdecimal():
-        raise ValueError(f'Not a numbered checkpoint path: {base}')
-    if not args.bot.is_file():
-        raise ValueError(f'Build {args.bot} before starting the campaign')
-    plan = minutes_plan(args.minutes, args.pilot_minutes, args.block_minutes)
+def recipe_train_args(args):
+    """The native recipe this campaign pins, derived only from the driver's own flags.
+
+    Kept as a pure function so the resume path can be tested against it directly: whatever
+    `resume_training.build_resume_command` sends back has to reproduce this exactly, token for
+    token, or the campaign refuses to resume (`config != state['config']`).
+    """
     train_args = ['--threads', str(args.threads), '--games', '88', '--mode-balance', 'players',
                   '--ts-per-itr', '48384', '--batch-size', '12096',
                   '--fixed-rollout', '--lean-metrics', '--minibatch-size', str(args.minibatch),
@@ -402,8 +458,10 @@ def campaign(args):
         ('tactical_state_prob', '--tactical-state-prob'),
         ('train_vs_old', '--train-vs-old'),
         ('ts_per_version', '--ts-per-version'), ('max_versions', '--max-versions'),
-        ('skill_minutes', '--skill-minutes'), ('ts_per_save', '--ts-per-save'),
+        ('skill_minutes', '--skill-minutes'),
     ]
+    # --ts-per-save is not part of this list: the runtime save cadence (save_cadence_args /
+    # THROUGHPUT_PROFILES) owns it, and an explicit --ts-per-save is applied there, last.
     for attribute, flag in overrides:
         value = getattr(args, attribute, None)
         if value is not None:
@@ -425,6 +483,114 @@ def campaign(args):
         train_args.append('--fuzzed-kickoffs')
     if getattr(args, 'rewards', None):
         train_args.extend(['--rewards', args.rewards])
+    return train_args
+
+
+# The save cadence is re-derived every cycle (profile_train_args / save_cadence_args) from the
+# measured throughput, so it is deliberately not part of a campaign's frozen identity: a resume only
+# has to reproduce the training recipe, and a faster runner may legitimately save less often.
+DERIVED_TRAIN_ARGS = {'--ts-per-save', '--ts-per-save-after-first'}
+
+
+def pinned_identity(config):
+    """The part of a campaign config that a resume must reproduce exactly."""
+    identity = {k: v for k, v in config.items() if k != 'train_args'}
+    tokens, i = [], 0
+    args = list(config.get('train_args') or [])
+    while i < len(args):
+        if args[i] in DERIVED_TRAIN_ARGS:
+            i += 2
+            continue
+        tokens.append(args[i])
+        i += 1
+    identity['train_args'] = tokens
+    return identity
+
+
+def merge_native_args(train_args, native_args):
+    """Fold native passthrough into the pinned preset, in the preset's own order.
+
+    A campaign pins `train_args` and refuses to resume unless a resume reproduces it token for
+    token, so passthrough must not be appended at the end: a value that the preset already carries
+    is updated where it sits, and only genuinely new flags are appended.
+    """
+    merged = list(train_args)
+    i = 0
+    while i < len(native_args):
+        flag = native_args[i]
+        value = native_args[i + 1] if i + 1 < len(native_args) and not native_args[i + 1].startswith('--') else None
+        if flag in merged:
+            at = merged.index(flag)
+            if value is None:
+                pass                      # boolean flag the preset already sets
+            elif at + 1 < len(merged) and not merged[at + 1].startswith('--'):
+                merged[at + 1] = value
+            else:
+                merged.insert(at + 1, value)
+        else:
+            merged.append(flag)
+            if value is not None:
+                merged.append(value)
+        i += 2 if value is not None else 1
+    return merged
+
+
+REWARD_PRESET_RE = re.compile(r'\{\s*"(v\d+)",\s*((?:"[^"]*"\s*)+)\}')
+REWARD_NAMES_RE = re.compile(r'\{\s*"([A-Za-z]+)",\s*[-\d.]')
+
+
+def validate_rewards(spec):
+    """Reject a --runtime-rewards value the bot would reject, before any training starts.
+
+    The bot owns the preset table and the Name=weight parser; a typo there would otherwise only surface
+    inside a cycle, after the pinned recipe had already been updated. The names are read out of the
+    reward definitions so this can never drift from them.
+    """
+    source = (REPO / 'src' / 'ExampleMain.cpp').read_text()
+    presets = {name for name, _ in REWARD_PRESET_RE.findall(source)}
+    names = set(REWARD_NAMES_RE.findall(source[source.index('REWARD_DEFS = {'):source.index('REWARD_PRESETS = {')]))
+    if '=' not in spec:
+        if spec not in presets:
+            raise ValueError(f'--runtime-rewards {spec!r} is not a preset; known: {sorted(presets)}')
+        return
+    unknown = [item.split('=')[0] for item in spec.split(',')
+               if item.split('=')[0] not in names or len(item.split('=')) != 2]
+    if unknown:
+        raise ValueError(f'--runtime-rewards has unknown reward names {unknown}; '
+                         f'known: {sorted(names)}')
+
+
+def config_drift(requested, stored, out):
+    """Explain why a resumed campaign's settings no longer match the ones it pinned."""
+    problems = []
+    requested, stored = pinned_identity(requested), pinned_identity(stored)
+    for key in sorted(set(requested) | set(stored)):
+        if requested.get(key) == stored.get(key):
+            continue
+        if key == 'train_args':
+            mine, theirs = list(requested['train_args']), list(stored['train_args'])
+            extra = [t for t in mine if t not in theirs]
+            missing = [t for t in theirs if t not in mine]
+            problems.append(f'train_args differs (unexpected {extra}, missing {missing})')
+        else:
+            problems.append(f'{key}: stored {stored.get(key)!r} != requested {requested.get(key)!r}')
+    stored_pool = stored.get('pool_sha256')
+    if stored_pool is not None and pool_digest(out / 'pool') != stored_pool:
+        problems.append('policy pool digest changed')
+    return '; '.join(problems) + '. Use the original settings or a fresh --out.'
+
+
+def campaign(args):
+    out, learner = args.out, args.out / 'learner'
+    statefile = out / 'state.json'
+    base = checkpoint(args.base) if not statefile.exists() else Path(args.base)
+    if not base.name.isdecimal():
+        raise ValueError(f'Not a numbered checkpoint path: {base}')
+    if not args.bot.is_file():
+        raise ValueError(f'Build {args.bot} before starting the campaign')
+    plan = minutes_plan(args.minutes, args.pilot_minutes, args.block_minutes)
+    train_args = recipe_train_args(args)
+    train_args = merge_native_args(train_args, getattr(args, 'native_args', []))
     config = dict(base=str(base), preset_sha256=hashlib.sha256((REPO / 'train_1v1_2v2_3v3.sh').read_bytes()).hexdigest(),
                   parent_steps=int(base.name), seed=args.seed, screen_seed=SCREEN,
                   confirm_seed=CONFIRM, audit_seed=getattr(args, 'audit_seed', AUDIT), rounds=args.rounds, train_args=train_args,
@@ -486,8 +652,10 @@ def campaign(args):
             }
         write(statefile, state)
     state = read(statefile)
-    if config != state['config'] or pool_digest(out / 'pool') != state['pool_sha256']:
-        raise ValueError('Campaign settings or frozen pool changed. Use the original settings or a fresh --out.')
+    if (pinned_identity(config) != pinned_identity(state['config'])
+            or pool_digest(out / 'pool') != state['pool_sha256']):
+        raise ValueError('Campaign settings or frozen pool changed; '
+                         + config_drift(config, state['config'], out))
     # Old policies are immutable records: pin every version's files once and re-verify them at
     # each cycle boundary, so no later save can re-rate or re-annotate an existing version.
     state.setdefault('frozen_versions', frozen_versions(out / 'pool'))
@@ -542,6 +710,30 @@ def campaign(args):
         write(statefile, state)
     runtime_overrides = state.get('runtime_overrides') or {}
     runtime_train_args = []
+    if getattr(args, 'ts_per_save', None):
+        # An explicit interval wins over the derived cadence, in the config as well as on the
+        # command line, so the pinned recipe stays reproducible.
+        train_args = train_args[:train_args.index('--ts-per-save') + 2] if '--ts-per-save' in train_args else train_args
+        if train_args and train_args[-2] == '--ts-per-save':
+            train_args[-1] = args.ts_per_save
+        else:
+            train_args += ['--ts-per-save', args.ts_per_save]
+        config['train_args'] = train_args
+        runtime_train_args.extend(['--ts-per-save', args.ts_per_save])
+        cadence_set = True
+    else:
+        cadence_set = False
+    runtime_rewards = getattr(args, 'runtime_rewards', None)
+    if runtime_rewards:
+        validate_rewards(runtime_rewards)
+        if runtime_overrides.get('rewards') != runtime_rewards:
+            runtime_overrides['rewards'] = runtime_rewards
+            state['runtime_overrides'] = runtime_overrides
+            write(statefile, state)
+        print('Runtime reward override:', runtime_rewards)
+    if runtime_overrides.get('rewards'):
+        # Appended after the pinned recipe, so it wins over the preset train_args carries.
+        runtime_train_args.extend(['--rewards', runtime_overrides['rewards']])
     if runtime_overrides.get('reward_metrics'):
         runtime_train_args.append('--reward-metrics')
     if runtime_overrides.get('player_metrics'):
@@ -551,10 +743,19 @@ def campaign(args):
         runtime_overrides['fuzzed_kickoffs'] = True
         state['runtime_overrides'] = runtime_overrides
         write(statefile, state)
-    if runtime_overrides.get('throughput_profile') == 'cpu-20k':
+    if not cadence_set and runtime_overrides.get('throughput_profile'):
         # Benchmarked on the two-vCPU CPU runner: this is the fastest stable all-mode profile,
         # with best clean measurements near 19.5k overall SPS. Shared-host variance still applies.
-        runtime_train_args.extend(['--games', '64', '--epochs', '1', '--collection-infer-threads', '1'])
+        runtime_train_args.extend(profile_train_args(
+            runtime_overrides['throughput_profile'],
+            continuous=runtime_overrides.get('continuous', False),
+            block_minutes=getattr(args, 'block_minutes', 30)))
+    elif not cadence_set:
+        # No profile: keep the recipe, but still keep the save cadence inside one backup window.
+        runtime_train_args.extend(save_cadence_args(
+            state, continuous=runtime_overrides.get('continuous', False),
+            block_minutes=getattr(args, 'block_minutes', 30),
+            backup_interval=getattr(args, 'backup_interval', 1800)))
     if out.resolve().is_relative_to(REPO.resolve()):
         state['working_directory'] = str(out.resolve().relative_to(REPO.resolve()))
     if getattr(args, 'target_ranking', None) is not None:
@@ -574,16 +775,24 @@ def campaign(args):
         state['wandb_dir'] = str(Path(wb.dir).parent.relative_to(REPO)) if Path(wb.dir).is_relative_to(REPO) else str(Path(wb.dir).parent)
     service = None
     if getattr(args, 'github_backup', False):
+        # The only GitHub traffic this campaign produces: one verified checkpoint push every
+        # --backup-interval seconds (default 1800 = 30 minutes), and nothing else.
         service = subprocess.Popen([sys.executable, str(REPO / 'tools/training_service.py'), str(out),
-                                    '--interval', str(getattr(args, 'backup_interval', 1800))])
-    bridge_proc = None
-    if getattr(args, 'wandb_bridge', False):
-        bridge_proc = subprocess.Popen([sys.executable, str(REPO / 'tools/wandb_live_bridge.py'),
-                                        'publish', str(out), '--interval', '20'])
+                                    '--interval', str(getattr(args, 'backup_interval', 1800)),
+                                    '--status-file', str(out / 'backup-status.json')])
     streamer = None
     if getattr(args, 'wandb_online', False):
-        streamer = subprocess.Popen([sys.executable, str(REPO / 'tools/ranked_wandb.py'),
-                                     str(out), '--out', str(out / 'online-stream'), '--online'])
+        # Direct W&B streaming: the streamer talks to api.wandb.ai itself. It never goes through
+        # GitHub Actions, issues, or git, so no repository rate limit can be involved.
+        if importlib.util.find_spec('wandb') is None:
+            print('W&B streaming requested but the `wandb` package is not installed; '
+                  'run `pip install wandb`. JSON metrics are still written locally.', flush=True)
+        else:
+            # --offline-fallback: a host that cannot reach W&B keeps a syncable local run rather
+            # than losing the metrics; nothing about training depends on the upload.
+            streamer = subprocess.Popen([sys.executable, str(REPO / 'tools/ranked_wandb.py'), 'stream',
+                                         str(out), '--out', str(out / 'wandb-live'), '--offline-fallback',
+                                         '--interval', str(getattr(args, 'wandb_interval', 10.0))])
     def evaluate(p, seed, multiplier=1, write_back=False):
         """Rate a policy against the pool as it is right now.
 
@@ -652,7 +861,8 @@ def campaign(args):
                     pending['wall_seconds'] = prior_wall + now - stage_wall_start
                     write(statefile, state)
                 cmd = ['bash', 'train_1v1_2v2_3v3.sh', '--checkpoints', learner, *train_args,
-                       *runtime_train_args, '--seed', args.seed + i, '--run-name', 'three-mode-ranking',
+                       *runtime_train_args, *getattr(args, 'native_args', []),
+                       '--seed', args.seed + i, '--run-name', 'three-mode-ranking',
                        '--max-minutes', max(0.02, minutes - previous / 60)]
                 if runtime_overrides.get('evolving_opponents', False):
                     # Do not let the native saver append unqualified policies: only the outer
@@ -792,12 +1002,6 @@ def campaign(args):
         if service is not None:
             service.terminate()
             service.wait(timeout=30)
-        if bridge_proc is not None:
-            try:
-                bridge_proc.wait(timeout=25)
-            except subprocess.TimeoutExpired:
-                bridge_proc.terminate()
-                bridge_proc.wait(timeout=15)
         if streamer is not None:
             try:
                 streamer.wait(timeout=15)
@@ -810,8 +1014,7 @@ def campaign(args):
             wb.finish(exit_code=int(state['status'] == 'failed'))
 
 
-def main():
-    os.chdir(REPO)
+def build_arg_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', type=Path, required=True, help='Full numbered S checkpoint with a sibling policy_versions pool')
     parser.add_argument('--out', type=Path, required=True, help='Fresh campaign directory or a matching campaign to resume')
@@ -825,9 +1028,14 @@ def main():
                         help='Rating round budget per screen; the actual count follows the opponent '
                              'pool size (a multiple of twice the pool size, never below the budget)')
     parser.add_argument('--wandb-offline', action='store_true', help='Write a syncable W&B run in --out; no credential or network needed')
-    parser.add_argument('--wandb-online', action='store_true', help='Tail metrics to W&B online in a separate sandbox process; requires W&B credentials/network')
-    parser.add_argument('--wandb-bridge', action='store_true', help='Stream live metrics to W&B via the GitHub Actions cloud relay even when direct W&B egress is blocked')
-    parser.add_argument('--github-backup', action='store_true', help='Automatically commit resumable snapshots and push the current branch every --backup-interval seconds')
+    parser.add_argument('--wandb-online', action='store_true',
+                        help='Stream metrics straight to online W&B in a separate process (direct HTTPS to '
+                             'api.wandb.ai; never through GitHub). Needs WANDB_API_KEY or `wandb login`')
+    parser.add_argument('--wandb-interval', type=float, default=10.0,
+                        help='Seconds between W&B stream polls (default: 10)')
+    parser.add_argument('--github-backup', action='store_true',
+                        help='Push a resumable checkpoint snapshot to the current branch every '
+                             '--backup-interval seconds. This is the only GitHub traffic training creates')
     parser.add_argument('--backup-interval', type=int, default=1800, help='Minimum seconds between GitHub auto-backups (default: 1800 = 30 minutes)')
     parser.add_argument('--reference-pool', type=Path, help='Explicit immutable opponent pool for a fresh experiment')
     parser.add_argument('--extra-versions', type=Path, nargs='*', help='Optional native checkpoints copied into learner/policy_versions only (frozen eval pool untouched)')
@@ -856,6 +1064,10 @@ def main():
     parser.add_argument('--skill-minutes', type=float, help='Minutes between internal skill tracker matches')
     parser.add_argument('--ts-per-save', help='Timesteps between local checkpoint saves (e.g. 10m)')
     parser.add_argument('--rewards', help='Native comma-separated reward weights for a fresh experiment')
+    parser.add_argument('--runtime-rewards',
+                        help='Change a running campaign\'s reward preset/weights without touching its pinned '
+                             'training recipe (e.g. v6). Unlike --rewards it leaves config["train_args"] alone, '
+                             'so the campaign still resumes; it is recorded in state.json runtime_overrides.')
     parser.add_argument('--reward-metrics', action='store_true',
                         help='Enable sampled reward-component telemetry for this campaign and persist the choice across resumes')
     parser.add_argument('--player-metrics', action='store_true',
@@ -870,7 +1082,21 @@ def main():
                         help='Number of saved historical policies in the evolving train/eval pool (default: 10)')
     parser.add_argument('--promotion-margin', type=float, default=50.0,
                         help='Raw endpoint Elo margin above the strongest pool member required for promotion (default: 50)')
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    os.chdir(REPO)
+    parser = build_arg_parser()
+    # Everything after `--` is native recipe passthrough (--games, --mode-balance, --ts-per-itr,
+    # --fixed-rollout, --lean-metrics, --keep-checkpoints, ...), appended last so it wins over the
+    # preset exactly like running the recipe by hand.
+    argv = sys.argv[1:]
+    extra = argv[argv.index('--') + 1:] if '--' in argv else []
+    if '--' in argv:
+        argv = argv[:argv.index('--')]
+    args = parser.parse_args(argv)
+    args.native_args = extra
     if args.backup_interval < 60:
         parser.error('--backup-interval must be at least 60 seconds')
     if args.target_ranking is not None and not (0 < args.target_ranking < 10000):

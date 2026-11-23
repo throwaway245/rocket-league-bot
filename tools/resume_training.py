@@ -58,10 +58,55 @@ def restore(snapshot=SNAPSHOT, work=WORK):
     return state
 
 
+# Native recipe tokens that train_ranked.py forwards itself. Everything else the preset pins
+# (--games, --mode-balance, --ts-per-itr, --fixed-rollout, --lean-metrics, --keep-checkpoints, ...)
+# travels as passthrough, exactly like running the recipe by hand.
+TRAINER_FLAGS_WITH_VALUE = {
+    '--threads', '--minibatch-size', '--batch-size', '--lr', '--critic-lr', '--epochs',
+    '--entropy-scale', '--norm-advantages', '--target-kl', '--gamma', '--gae-lambda',
+    '--return-stat-max-count', '--random-state-prob', '--tactical-state-prob', '--train-vs-old',
+    '--ts-per-version', '--max-versions', '--skill-minutes', '--ts-per-save', '--rewards',
+}
+TRAINER_FLAGS = {'--mask-entropy', '--fuzzed-kickoffs', '--pfsp'}
+# Owned by the runtime save cadence below, never replayed from the preset.
+CADENCE_FLAGS = {'--ts-per-save'}
+
+
+def split_recipe(train_args):
+    """Split a pinned native recipe into (trainer flags, native passthrough)."""
+    trainer, native, i = [], [], 0
+    args = list(train_args)
+    while i < len(args):
+        flag = args[i]
+        if flag in TRAINER_FLAGS_WITH_VALUE:
+            value = args[i + 1] if i + 1 < len(args) else ''
+            if flag not in CADENCE_FLAGS:
+                trainer += [flag, value]
+            i += 2
+            continue
+        if flag in TRAINER_FLAGS:
+            trainer.append(flag)
+            i += 1
+            continue
+        value = args[i + 1] if i + 1 < len(args) and not args[i + 1].startswith('--') else None
+        native.append(flag)
+        if value is not None:
+            native.append(value)
+            i += 2
+        else:
+            i += 1
+    return trainer, native
+
+
+def native_passthrough(train_args):
+    return split_recipe(train_args)[1]
+
+
 def build_resume_command(state, work, without_services=False, backup_interval=1800,
                          reward_metrics=False, player_metrics=False, throughput_profile=None,
                          continuous=False, evolving_opponents=False, opponent_pool_size=None,
-                         promotion_margin=None):
+                         promotion_margin=None, wandb_online=True, wandb_interval=10.0,
+                         runtime_rewards=None):
     config = state['config']
     cmd = [sys.executable, str(ROOT / 'tools/train_ranked.py'), '--base', config['base'],
            '--out', str(work.relative_to(ROOT)), '--minutes', str(sum(config['minutes'])),
@@ -75,22 +120,19 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
         cmd += ['--reference-pool', config['reference_pool']]
     if config.get('extra_versions'):
         cmd += ['--extra-versions', *config['extra_versions']]
-    train_args = config['train_args']
-    defaults = {'--lr': '1e-4', '--batch-size': '12096', '--skill-minutes': '15', '--ts-per-save': '5m'}
-    for flag in ('--threads', '--minibatch-size', '--lr', '--critic-lr', '--epochs', '--batch-size',
-                 '--entropy-scale', '--norm-advantages', '--target-kl', '--gamma', '--gae-lambda',
-                 '--return-stat-max-count', '--random-state-prob', '--tactical-state-prob',
-                 '--train-vs-old', '--ts-per-version', '--max-versions', '--skill-minutes',
-                 '--ts-per-save', '--rewards'):
-        if flag not in train_args:
-            continue
-        value = train_args[train_args.index(flag) + 1]
-        if defaults.get(flag) == value:
-            continue  # preserve exact default config entries
-        cmd += ['--minibatch' if flag == '--minibatch-size' else flag, value]
-    for flag in ('--mask-entropy', '--fuzzed-kickoffs', '--pfsp'):
-        if flag in train_args:
-            cmd.append(flag)
+    # Replay the stored recipe exactly: the tokens train_ranked.py exposes as its own flags, plus
+    # everything else (--games, --mode-balance, --fixed-rollout, --lean-metrics, --keep-checkpoints,
+    # ...) as native passthrough. train_ranked.py pins the whole config and refuses to resume when
+    # it differs, so nothing may be dropped or rewritten here. --ts-per-save is the one exception:
+    # the derived save cadence owns it.
+    trainer_flags, native_flags = split_recipe(config['train_args'])
+    for flag in trainer_flags:
+        cmd.append('--minibatch' if flag == '--minibatch-size' else flag)
+    rewards = runtime_rewards or (state.get('runtime_overrides') or {}).get('rewards')
+    if rewards:
+        # Rewards are a runtime override, not part of the pinned recipe, so changing them keeps the
+        # campaign resumable (train_ranked appends this after the pinned --rewards, so it wins).
+        cmd += ['--runtime-rewards', rewards]
     if reward_metrics or (state.get('runtime_overrides') or {}).get('reward_metrics'):
         cmd.append('--reward-metrics')
     if player_metrics or (state.get('runtime_overrides') or {}).get('player_metrics'):
@@ -108,7 +150,14 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
         cmd += ['--promotion-margin', str(promotion_margin if promotion_margin is not None
                                            else runtime.get('promotion_margin', 50.0))]
     if not without_services:
-        cmd += ['--github-backup', '--backup-interval', str(backup_interval), '--wandb-bridge']
+        # 30-minute GitHub checkpoint backups; metrics go straight to W&B, never through GitHub.
+        cmd += ['--github-backup', '--backup-interval', str(backup_interval)]
+        if wandb_online:
+            cmd += ['--wandb-online', '--wandb-interval', str(wandb_interval)]
+    if native_flags:
+        # Native passthrough last: train_ranked forwards everything after `--` to the trainer, so
+        # the preset travels unchanged instead of being rejected as an unknown driver flag.
+        cmd.extend(['--', *native_flags])
     return cmd
 
 
@@ -116,9 +165,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--restore-only', action='store_true')
     parser.add_argument('--without-services', action='store_true',
-                        help='Run trainer only, without automatic GitHub backup or W&B bridge')
+                        help='Run trainer only, without the 30-minute GitHub backup or W&B streaming')
+    parser.add_argument('--no-wandb', action='store_true',
+                        help='Keep the GitHub checkpoint backup but do not stream metrics to W&B')
     parser.add_argument('--reward-metrics', action='store_true',
                         help='Enable and persist sampled reward-component telemetry on the resumed campaign')
+    parser.add_argument('--runtime-rewards',
+                        help='Change the running campaign\'s reward preset/weights (e.g. v6). Leaves the pinned '
+                             'recipe intact, so the campaign still resumes.')
     parser.add_argument('--player-metrics', action='store_true',
                         help='Enable and persist sampled per-player telemetry on the resumed campaign')
     parser.add_argument('--throughput-profile', choices=('cpu-20k',),
@@ -133,6 +187,8 @@ def main():
                         help='Required Elo lead over the pool strongest policy (default: 50)')
     parser.add_argument('--backup-interval', type=int, default=1800,
                         help='Minimum seconds between GitHub auto-backups (default: 1800 = 30 minutes)')
+    parser.add_argument('--wandb-interval', type=float, default=10.0,
+                        help='Seconds between direct W&B stream polls (default: 10)')
     args = parser.parse_args()
     saved = json.loads((SNAPSHOT / 'state.json').read_text())
     work = ROOT / saved.get('working_directory', str(WORK.relative_to(ROOT)))
@@ -149,7 +205,9 @@ def main():
                                player_metrics=args.player_metrics, throughput_profile=args.throughput_profile,
                                continuous=args.continuous, evolving_opponents=args.evolving_opponents,
                                opponent_pool_size=args.opponent_pool_size,
-                               promotion_margin=args.promotion_margin)
+                               promotion_margin=args.promotion_margin,
+                               wandb_online=not args.no_wandb, wandb_interval=args.wandb_interval,
+                               runtime_rewards=args.runtime_rewards)
     print('Resuming only because this script was explicitly invoked.', flush=True)
     subprocess.run(cmd, cwd=ROOT, check=True)
 

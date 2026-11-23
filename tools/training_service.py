@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Headless GitHub checkpoint backup worker for ranked training campaigns."""
+"""Headless GitHub checkpoint backup worker for ranked training campaigns.
+
+This is the *only* part of a campaign that writes to GitHub, and it is deliberately slow:
+one verified checkpoint push per `--interval` seconds (default 1800 = 30 minutes), recorded
+in `training-backup/manifest.json` so restarts honour the same cadence. Nothing else about
+training — and in particular no metric, log line or W&B record — is ever sent through GitHub.
+
+It also publishes a small status file (which checkpoint is backed up, when the next push is due)
+when `--status-file` is given. That file is informational only: it never causes extra GitHub
+calls, and nothing about training depends on it.
+"""
 import argparse
 import fcntl
 import hashlib
@@ -17,6 +27,7 @@ FILES = {'CRITIC.lt', 'CRITIC_OPTIM.lt', 'POLICY.lt', 'POLICY_OPTIM.lt',
          'INFO.json', 'RUNNING_STATS.json'}
 DEFAULT_BACKUP_INTERVAL = 1800  # 30 minutes between GitHub auto-backups
 BACKUP_RETRY_SECONDS = 60       # Retry cadence only when a due backup is incomplete or failed
+STATUS_REFRESH_SECONDS = 60     # How often the status file is rewritten while a backup is counting down
 
 
 def git(*args):
@@ -56,6 +67,26 @@ def last_backup_time(destination, status):
         return None
     times = [t for t in (status.get('last_success'), read_manifest_created(destination)) if t is not None]
     return max(times) if times else None
+
+
+def write_status(status_file, status, campaign, interval):
+    """Publish what the worker last backed up and when the next push is due.
+
+    Purely informational (a human or a health check can read it), but it makes the 30-minute
+    cadence verifiable instead of implied. It never triggers extra GitHub calls.
+    """
+    if status_file is None:
+        return
+    payload = dict(status, interval_seconds=interval, updated=time.time())
+    try:
+        newest = max((int(p.name) for p in (campaign / 'learner').iterdir()
+                      if p.is_dir() and p.name.isdecimal()), default=None)
+    except OSError:
+        newest = None
+    payload['newest_checkpoint'] = newest
+    tmp = status_file.with_suffix('.tmp')
+    tmp.write_text(json.dumps(payload, indent=2) + '\n')
+    tmp.replace(status_file)
 
 
 def seconds_until_backup_due(destination, status, min_interval, now=None):
@@ -196,6 +227,8 @@ def main():
     parser.add_argument('campaign', type=Path)
     parser.add_argument('--interval', type=int, default=DEFAULT_BACKUP_INTERVAL,
                         help='Minimum seconds between automatic GitHub backups (default: 1800 = 30 minutes)')
+    parser.add_argument('--status-file', type=Path,
+                        help='Where to publish backup progress (informational; no GitHub calls)')
     args = parser.parse_args()
     args.campaign = args.campaign.resolve()
     interval = max(60, int(args.interval))
@@ -216,19 +249,24 @@ def main():
     }
     print(f'GitHub checkpoint backup worker active (interval={interval}s, branch={branch})', flush=True)
     while True:
-        wait_s = seconds_until_backup_due(dest, status, interval)
-        if wait_s > 0:
-            status['next_due'] = time.time() + wait_s
-            time.sleep(wait_s)
-            continue
         try:
+            wait_s = seconds_until_backup_due(dest, status, interval)
+            if wait_s > 0:
+                status['next_due'] = time.time() + wait_s
+                # Refresh the countdown in short slices, so the status file stays current without
+                # ever sleeping through a due backup.
+                write_status(args.status_file, status, args.campaign, interval)
+                time.sleep(min(wait_s, STATUS_REFRESH_SECONDS))
+                continue
             ran = backup(args.campaign, dest, branch, status, min_interval=interval)
             if ran:
                 print('Backup verified:', json.dumps(status), flush=True)
+            write_status(args.status_file, status, args.campaign, interval)
             time.sleep(max(1.0, seconds_until_backup_due(dest, status, interval)))
         except Exception as exc:
             status['error'] = str(exc)
             print('Backup pending/failed:', str(exc), flush=True)
+            write_status(args.status_file, status, args.campaign, interval)
             time.sleep(min(BACKUP_RETRY_SECONDS, interval))
 
 

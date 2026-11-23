@@ -39,6 +39,11 @@ namespace GGL {
 		// Save every timestep
 		// Set to zero to just use timestepsPerIteration
 		int64_t tsPerSave = 1'000'000;
+		// Interval used instead of tsPerSave once the first checkpoint exists. A short-lived first
+		// stage (e.g. a 30-minute training cycle) would otherwise never reach tsPerSave at all, so a
+		// second interval lets the first cycle save early and later cycles use the full cadence.
+		// Set to zero to keep using tsPerSave for every save.
+		int64_t tsPerSaveAfterFirst = 0;
 		uint64_t maxTimesteps = 0; // PPO: stop at an iteration boundary, counting learner steps only
 
 		// Optional notes that are saved into every checkpoint as "INFO.json" (e.g. which model config and obs builder it needs).

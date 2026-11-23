@@ -98,7 +98,13 @@ public:
 class TeamSpacingReward : public Reward {
 public:
 	static constexpr float MIN_DIST = 1500.f;
+	// At a kickoff respawn the cars are placed next to each other, so an ungated spacing penalty fires for the
+	// first ~0.2s of every episode no matter how well the team would have rotated: measured -0.058 raw in the v5
+	// campaign, 30% of the total reward. Give the cars a moment to separate before judging the shape.
+	static constexpr float MIN_BALL_DIST = 400.f;
 	virtual float GetReward(const Player& player, const GameState& state, bool isFinal) {
+		if ((state.ball.pos - player.pos).LengthSq() < MIN_BALL_DIST * MIN_BALL_DIST)
+			return 0.f;
 		float minTeammateDist = 1e9f;
 		bool hasTeammate = false;
 		for (auto& other : state.players) {
@@ -129,6 +135,29 @@ public:
 		Vec dirToBall = (state.ball.pos - player.pos).Normalized();
 		Vec normVel = player.vel / CommonValues::CAR_MAX_SPEED;
 		return dirToBall.Dot(normVel);
+	}
+};
+
+// SaveBoostReward, but paid for the behaviour rather than the state: the car has to be moving toward its own
+// goal *and* already goal-side of the ball. SaveBoostReward's cheapest optimum is sitting still on 100 boost
+// anywhere on the pitch (it ignores velocity and position completely), which at v5's measured 0.407 raw value
+// made it the single largest dense term in the reward, ahead of every ball-directed reward. This keeps the
+// "hold boost for the moment you have to make the save" incentive and drops the "park on full boost" one.
+class GoalSideBoostReward : public Reward {
+public:
+	float exponent;
+	GoalSideBoostReward(float exponent = 0.5f) : exponent(exponent) {}
+
+	virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+		float sign = (player.team == Team::BLUE) ? 1.f : -1.f;
+		// Goal-side of the ball: own goal is at -sign*Y, so a smaller signed y is deeper.
+		if ((player.pos.y - state.ball.pos.y) * sign > 0.f)
+			return 0.f;
+		// Recovering toward own goal, not driving upfield.
+		if (player.vel.y * sign > -100.f)
+			return 0.f;
+		float closing = RS_MIN(1.f, -player.vel.y * sign / CommonValues::CAR_MAX_SPEED);
+		return RS_CLAMP(powf(player.boost / 100.f, exponent), 0.f, 1.f) * closing;
 	}
 };
 
@@ -585,9 +614,14 @@ class DoubleCommitReward : public Reward {
 public:
 	static constexpr float SPACE_DIST       = 1350.f;
 	static constexpr float BALL_COMMIT_DIST = 1450.f;
+	// Same kickoff-respawn caveat as TeamSpacingReward: measured -0.043 raw in the v5 campaign, 30% of the reward,
+	// much of it charged for cars that had simply not left their spawn slots yet.
+	static constexpr float MIN_BALL_DIST    = 400.f;
 
 	virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 		if (player.isDemoed || state.players.size() <= 2)
+			return 0.f;
+		if ((state.ball.pos - player.pos).LengthSq() < MIN_BALL_DIST * MIN_BALL_DIST)
 			return 0.f;
 
 		float ownBallDist = (state.ball.pos - player.pos).Length();
@@ -635,12 +669,12 @@ static const std::vector<RewardDef> REWARD_DEFS = {
 	{ "VelocityBallToGoal", 3.f, []() -> Reward* { return new ZeroSumReward(new VelocityBallToGoalReward(), 1); }, "ball speed towards the opponent goal (zero-sum)" },
 
 	// Positioning & spacing
-	{ "BehindBall", 0.5f, []() -> Reward* { return new BehindBallReward(); }, "being between own goal and the ball" },
+	{ "BehindBall", 0, []() -> Reward* { return new BehindBallReward(); }, "being between own goal and the ball (0: a car parked goal-side at any distance collects it, and DefensiveCover/SoloDiscipline already pay this positioning by threat)" },
 	{ "TeamSpacing", 1.f, []() -> Reward* { return new TeamSpacingReward(); }, "spacing out from teammates in 2v2/3v3" },
 
 	// Boost
 	{ "PickupBoost", 10.f, []() -> Reward* { return new PickupBoostReward(); }, "collecting boost" },
-	{ "SaveBoost", 0.2f, []() -> Reward* { return new SaveBoostReward(); }, "having boost" },
+	{ "SaveBoost", 0.2f, []() -> Reward* { return new GoalSideBoostReward(); }, "having boost while goal-side and recovering toward own goal (not parking on full boost)" },
 
 	// Game events
 	{ "Bump", 20, []() -> Reward* { return new ZeroSumReward(new BumpReward(), 0.5f); }, "bumping an opponent (zero-sum)" },
@@ -697,6 +731,28 @@ static const std::map<std::string, std::string> REWARD_PRESETS = {
 	// whole Shot=20 event) for pointing the nose at the ball. By 1795 Elo that is a learned reflex, and the term's
 	// cheapest optimum is hovering near the ball facing it instead of committing to a play.
 	{ "v5", "Air=0.05,FaceBall=0,VelocityPlayerToBall=0,NearestVelocityToBall=0.5,TouchBall=0,Speed=0,"
+	        "TeamVelocityToBall=0,StrongTouch=0,TouchAccel=10,VelocityBallToGoal=0,BehindBall=0,TeamSpacing=0.75,"
+	        "KickoffProximity=0,PickupBoost=0,Demo=0,Goal=750,GoalSpeed=110,ScorerAssist=75,Save=30,Shot=20,"
+	        "DirectionalTouch=16,ObjectiveBallVel=10,KickoffSpeed=6,TeamPressure=2,SoloDiscipline=0.7,"
+	        "DefensiveCover=0.6,DoubleCommit=1,PickupBoostZS=4,SaveBoost=0.05,DemoZS=15,Bump=3" },
+	// v6: rebalanced from a measurement of v5's own per-term payouts (Rewards/* in the metrics stream, weighted by
+	// each term's v5 weight, over 170M timesteps where the drift of every term was under 0.006). Two of v5's three
+	// largest dense terms were paying for standing still:
+	//
+	//   NearestVelocityToBall  0.164 * 0.5  = 57% of the reward, and in 1v1 it is identical to the plain
+	//                                       VelocityPlayerToBall product, whose cheapest optimum is driving straight
+	//                                       at the ball without regard to angle, boost or whether it is a good idea.
+	//                                       Now 0.25 (half), leaving DirectionalTouch as the touch-quality signal.
+	//   TeamSpacing/           -0.058 and -0.043, i.e. 30% and 30% of the reward were *penalties* for a 2v2/3v3
+	//   DoubleCommit          robot team that stands next to itself at every kickoff respawn. Both are now
+	//                         distance-gated so they cannot fire before the cars have had a moment to separate.
+	//   SaveBoost              0.407 raw, 14% of the reward, velocity- and position-blind: its optimum is parking
+	//                                       on 100 boost anywhere on the pitch. Replaced by GoalSideBoostReward.
+	//
+	// Kept deliberately: Goal=750 stays the anchor (events are what the rating rewards), the whole touch-quality and
+	// positioning family (DirectionalTouch 16, Shot 20, Save 30, ScorerAssist 75, ObjectiveBallVel 10) is untouched,
+	// and BehindBall stays off because DefensiveCover/SoloDiscipline already pay that positioning by threat.
+	{ "v6", "Air=0.05,FaceBall=0,VelocityPlayerToBall=0,NearestVelocityToBall=0.25,TouchBall=0,Speed=0,"
 	        "TeamVelocityToBall=0,StrongTouch=0,TouchAccel=10,VelocityBallToGoal=0,BehindBall=0,TeamSpacing=0.75,"
 	        "KickoffProximity=0,PickupBoost=0,Demo=0,Goal=750,GoalSpeed=110,ScorerAssist=75,Save=30,Shot=20,"
 	        "DirectionalTouch=16,ObjectiveBallVel=10,KickoffSpeed=6,TeamPressure=2,SoloDiscipline=0.7,"
@@ -1245,9 +1301,10 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "random-car-speed", NULL, "Random states: the cars start with a random speed and spin, instead of at rest" },
 	{ "random-cars-in-air", NULL, "Random states: half of the cars start in the air with a random orientation, instead of all on the ground" },
 	{ "no-touch-timeout", "10", "Seconds without a ball touch before an episode is cut off, 0 = never" },
-	{ "rewards", "", "Reward weights that differ from the defaults, e.g. \"VelocityBallToGoal=6,Air=0\" (0 = off), see the list below — or a named preset: v3 (the 66-cycle campaign), v4 (dense RLGym-style shaping restored)" },
+	{ "rewards", "", "Reward weights that differ from the defaults, e.g. \"VelocityBallToGoal=6,Air=0\" (0 = off), see the list below — or a named preset: v3 (the 66-cycle campaign), v4 (dense RLGym-style shaping restored), v5 (v4 without FaceBall), v6 (v5 rebalanced from its own measured per-term payouts)" },
 	{ "seed", "123", "Random seed of the training or the evaluation, -1 = use the current time" },
 	{ "ts-per-save", "1000000", "Timesteps between checkpoints" },
+	{ "ts-per-save-after-first", "0", "Timesteps between checkpoints once the first one of this run exists (0 = use --ts-per-save)" },
 	{ "keep-checkpoints", "8", "Number of checkpoints kept before the oldest are deleted, -1 = keep all" },
 	{ "max-timesteps", "0", "Save and stop once this many total timesteps are reached, 0 = no limit" },
 	{ "max-minutes", "0", "Save and stop after this many minutes, 0 = no limit" },
@@ -2026,6 +2083,7 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 
 	cfg.checkpointFolder = opt.Str("checkpoints");
 	cfg.tsPerSave = opt.Int("ts-per-save");
+	cfg.tsPerSaveAfterFirst = opt.Int("ts-per-save-after-first");
 	cfg.checkpointsToKeep = (int)opt.Int("keep-checkpoints");
 
 	cfg.sendMetrics = !opt.Has("no-metrics"); // Send metrics

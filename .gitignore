@@ -54,5 +54,11 @@ __pycache__/
 /checkpoints/
 /results/
 
-# Local credential drop (the W&B publisher reads .secrets/wandb_api_key when /dev/shm is empty)
+# Local credentials for the direct W&B stream (never staged by the backup worker)
 /.secrets/
+
+# Per-campaign runtime bookkeeping written by the trainer / backup worker
+backup-status.json
+wandb-live/
+wandb-offline/
+.relay_cursor.json

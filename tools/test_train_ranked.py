@@ -266,7 +266,7 @@ class RankingTests(unittest.TestCase):
             args = argparse.Namespace(
                 base=base, out=out, bot=bot, minutes=1, pilot_minutes=1, block_minutes=1,
                 rounds=20, threads=1, minibatch=1008, seed=1, audit_seed=9007,
-                wandb_offline=False, wandb_online=False, wandb_bridge=False, github_backup=False,
+                wandb_offline=False, wandb_online=False, wandb_interval=10.0, github_backup=False,
                 reward_metrics=False, player_metrics=False, throughput_profile=None, continuous=False,
                 evolving_opponents=True, opponent_pool_size=10, promotion_margin=50.0,
                 reference_pool=None, extra_versions=None, target_ranking=None, stop_on_target=False,
@@ -378,7 +378,7 @@ class RankingTests(unittest.TestCase):
             args = argparse.Namespace(
                 base=base, out=out, bot=bot, minutes=2, pilot_minutes=1, block_minutes=1,
                 rounds=40, threads=1, minibatch=1008, seed=1, audit_seed=9007,
-                wandb_offline=False, wandb_online=False, wandb_bridge=False, github_backup=False,
+                wandb_offline=False, wandb_online=False, wandb_interval=10.0, github_backup=False,
                 reward_metrics=False, player_metrics=False, throughput_profile=None, continuous=False,
                 evolving_opponents=True, opponent_pool_size=15, promotion_margin=50.0,
                 reference_pool=None, extra_versions=None, target_ranking=None, stop_on_target=False,
