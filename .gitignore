@@ -1,0 +1,58 @@
+# CMake & Ninja
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+.ninja*
+build.ninja
+
+# Build outputs
+RocketSim.Dir/
+build/
+x86/
+x64/
+Release/
+Debug
+out/
+*.obj
+*.lib
+*.exe
+*.pdb
+*.ilk
+*.tmp
+*.pyd
+*.whl
+
+# Simulator meshes & raw binaries
+*.cmf
+*.bin
+libtorch
+RUN.lnk
+
+# Editors / IDEs
+.idea/
+.vs/
+*.vcxproj
+*.sln
+*.filters
+*.user
+CMakeSettings.json
+
+# Scratch / local runtime artifacts (canonical paused snapshot lives in training-backup/)
+___*
+__pycache__/
+/wandb/
+/metrics/
+/metrics_1v1_2v2/
+/checkpoints/
+/results/
+
+# Local credential drop (the W&B publisher reads .secrets/wandb_api_key when /dev/shm is empty)
+/.secrets/
