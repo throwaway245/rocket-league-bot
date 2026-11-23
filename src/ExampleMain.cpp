@@ -150,8 +150,8 @@ public:
 
 	virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 		float sign = (player.team == Team::BLUE) ? 1.f : -1.f;
-		// Goal-side of the ball (own goal is at -sign*Y, so a larger signed y means deeper).
-		if ((player.pos.y - state.ball.pos.y) * sign < 0.f)
+		// Goal-side of the ball: own goal is at -sign*Y, so a smaller signed y is deeper.
+		if ((player.pos.y - state.ball.pos.y) * sign > 0.f)
 			return 0.f;
 		// Recovering toward own goal, not driving upfield.
 		if (player.vel.y * sign > -100.f)
