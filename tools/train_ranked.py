@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Run a staged CPU training campaign, optionally repeating blocks until stopped. Rerun to resume.
-Linux, stdlib only unless --wandb-offline is requested. See RANKED_TRAINING.md for the protocol.
+Linux, stdlib only: W&B logging (direct or offline) is delegated to ranked_wandb.py in a
+separate process and never touches GitHub. See RANKED_TRAINING.md for the protocol.
 """
 import argparse
 import fcntl
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -574,16 +576,22 @@ def campaign(args):
         state['wandb_dir'] = str(Path(wb.dir).parent.relative_to(REPO)) if Path(wb.dir).is_relative_to(REPO) else str(Path(wb.dir).parent)
     service = None
     if getattr(args, 'github_backup', False):
+        # The only GitHub traffic this campaign produces: one verified checkpoint push every
+        # --backup-interval seconds (default 1800 = 30 minutes), and nothing else.
         service = subprocess.Popen([sys.executable, str(REPO / 'tools/training_service.py'), str(out),
-                                    '--interval', str(getattr(args, 'backup_interval', 1800))])
-    bridge_proc = None
-    if getattr(args, 'wandb_bridge', False):
-        bridge_proc = subprocess.Popen([sys.executable, str(REPO / 'tools/wandb_live_bridge.py'),
-                                        'publish', str(out), '--interval', '20'])
+                                    '--interval', str(getattr(args, 'backup_interval', 1800)),
+                                    '--status-file', str(out / 'backup-status.json')])
     streamer = None
     if getattr(args, 'wandb_online', False):
-        streamer = subprocess.Popen([sys.executable, str(REPO / 'tools/ranked_wandb.py'),
-                                     str(out), '--out', str(out / 'online-stream'), '--online'])
+        # Direct W&B streaming: the streamer talks to api.wandb.ai itself. It never goes through
+        # GitHub Actions, issues, or git, so no repository rate limit can be involved.
+        if importlib.util.find_spec('wandb') is None:
+            print('W&B streaming requested but the `wandb` package is not installed; '
+                  'run `pip install wandb`. JSON metrics are still written locally.', flush=True)
+        else:
+            streamer = subprocess.Popen([sys.executable, str(REPO / 'tools/ranked_wandb.py'), 'stream',
+                                         str(out), '--out', str(out / 'wandb-live'),
+                                         '--interval', str(getattr(args, 'wandb_interval', 10.0))])
     def evaluate(p, seed, multiplier=1, write_back=False):
         """Rate a policy against the pool as it is right now.
 
@@ -792,12 +800,6 @@ def campaign(args):
         if service is not None:
             service.terminate()
             service.wait(timeout=30)
-        if bridge_proc is not None:
-            try:
-                bridge_proc.wait(timeout=25)
-            except subprocess.TimeoutExpired:
-                bridge_proc.terminate()
-                bridge_proc.wait(timeout=15)
         if streamer is not None:
             try:
                 streamer.wait(timeout=15)
@@ -825,9 +827,14 @@ def main():
                         help='Rating round budget per screen; the actual count follows the opponent '
                              'pool size (a multiple of twice the pool size, never below the budget)')
     parser.add_argument('--wandb-offline', action='store_true', help='Write a syncable W&B run in --out; no credential or network needed')
-    parser.add_argument('--wandb-online', action='store_true', help='Tail metrics to W&B online in a separate sandbox process; requires W&B credentials/network')
-    parser.add_argument('--wandb-bridge', action='store_true', help='Stream live metrics to W&B via the GitHub Actions cloud relay even when direct W&B egress is blocked')
-    parser.add_argument('--github-backup', action='store_true', help='Automatically commit resumable snapshots and push the current branch every --backup-interval seconds')
+    parser.add_argument('--wandb-online', action='store_true',
+                        help='Stream metrics straight to online W&B in a separate process (direct HTTPS to '
+                             'api.wandb.ai; never through GitHub). Needs WANDB_API_KEY or `wandb login`')
+    parser.add_argument('--wandb-interval', type=float, default=10.0,
+                        help='Seconds between W&B stream polls (default: 10)')
+    parser.add_argument('--github-backup', action='store_true',
+                        help='Push a resumable checkpoint snapshot to the current branch every '
+                             '--backup-interval seconds. This is the only GitHub traffic training creates')
     parser.add_argument('--backup-interval', type=int, default=1800, help='Minimum seconds between GitHub auto-backups (default: 1800 = 30 minutes)')
     parser.add_argument('--reference-pool', type=Path, help='Explicit immutable opponent pool for a fresh experiment')
     parser.add_argument('--extra-versions', type=Path, nargs='*', help='Optional native checkpoints copied into learner/policy_versions only (frozen eval pool untouched)')

@@ -12,6 +12,7 @@ from training_service import (
     seconds_until_backup_due,
     snapshot_layout,
     verify_frozen_versions,
+    write_status,
 )
 
 
@@ -132,3 +133,38 @@ class BackupIntervalTests(unittest.TestCase):
                 seconds_until_backup_due(dest, status, DEFAULT_BACKUP_INTERVAL, now=10_240.0),
                 0.0,
             )
+
+
+class BackupPacingTests(unittest.TestCase):
+    """GitHub may only be written once per 30-minute window, and never lose a checkpoint."""
+
+    def make_campaign(self, root, newest=9000, status='training'):
+        campaign = root / 'campaign'
+        (campaign / 'learner' / str(newest)).mkdir(parents=True)
+        (campaign / 'state.json').write_text(json.dumps({'status': status}))
+        return campaign
+
+    def test_no_backup_happens_before_the_thirty_minute_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            campaign = self.make_campaign(root)
+            dest = root / 'training-backup'
+            dest.mkdir()
+            (dest / 'manifest.json').write_text(json.dumps({'created': 1_000.0}))
+            status = {'last_success': 1_000.0, 'checkpoint': 9000, 'push_pending': False,
+                      'next_due': 1_000.0 + DEFAULT_BACKUP_INTERVAL}
+            status_file = root / 'status.json'
+            write_status(status_file, status, campaign, DEFAULT_BACKUP_INTERVAL)
+            published = json.loads(status_file.read_text())
+            # The status file reports the cadence without touching GitHub.
+            self.assertAlmostEqual(published['next_due'], 1_000.0 + DEFAULT_BACKUP_INTERVAL)
+            self.assertEqual(published['newest_checkpoint'], 9000)
+            self.assertEqual(published['interval_seconds'], DEFAULT_BACKUP_INTERVAL)
+            with patch('training_service.git') as mock_git:
+                self.assertFalse(backup(campaign, dest, 'main', status,
+                                        min_interval=DEFAULT_BACKUP_INTERVAL, now=1_600.0))
+            mock_git.assert_not_called()
+
+    def test_peer_defaults_stay_rate_limited(self):
+        self.assertEqual(DEFAULT_BACKUP_INTERVAL, 1800)
+        self.assertEqual(BACKUP_RETRY_SECONDS, 60)

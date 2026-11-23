@@ -8,13 +8,16 @@
 # Restore into results/ without launching training:
 python3 tools/resume_training.py --restore-only
 
-# Verify and resume the finite training schedule (starts 30m GitHub auto-backup + live W&B publisher):
+# Verify and resume the finite training schedule (starts the 30m GitHub backup + direct W&B stream):
 python3 tools/resume_training.py
 
 # Resume one fixed 15-minute train/evaluate cycle and repeat it indefinitely with a rolling pool of 10 old policies:
 python3 tools/resume_training.py --continuous --evolving-opponents
 
-# Resume trainer only (no backup worker or W&B bridge):
+# Keep the checkpoint backup but log nothing to W&B:
+python3 tools/resume_training.py --no-wandb
+
+# Resume trainer only (no backup worker, no W&B stream):
 python3 tools/resume_training.py --without-services
 ```
 
@@ -29,7 +32,7 @@ python3 tools/train_ranked.py \
   --out results/weights1700/campaign \
   --minutes 720 --pilot-minutes 15 --block-minutes 30 --rounds 40 \
   --target-ranking 1700 \
-  --github-backup --backup-interval 1800 --wandb-bridge
+  --github-backup --backup-interval 1800 --wandb-online --wandb-interval 10
 ```
 
 To continue the v5 recipe from the newest canonical checkpoint with a rolling opponent pool that grows from the ten historical policies towards fifteen, in endless train/evaluate cycles:
@@ -48,7 +51,7 @@ python3 tools/train_ranked.py \
   --train-vs-old 0.5 --ts-per-version 20m --max-versions 14 \
   --skill-minutes 25.0 --ts-per-save 10m \
   --mask-entropy --fuzzed-kickoffs --rewards v5 \
-  --github-backup --backup-interval 1800 --wandb-bridge
+  --github-backup --backup-interval 1800 --wandb-online --wandb-interval 10
 ```
 
 The seed pool is the `policy_versions` folder next to `--base`; the campaign copies it into its own
@@ -137,7 +140,7 @@ python3 tools/verify_frozen_versions.py results/weights1700-v3/campaign
 `Overall Steps/Second` uses contiguous monotonic wall-clock intervals with zero excluded CPU or wall time:
 
 - Inside `GigaLearnCPP` (`Learner.cpp` and `python_scripts/metric_receiver.py`), each emitted window spans from process start (first report) or the exact end of the previous emitted report through opponent switching, rollout collection, inference, trajectory packing, GAE, per-mode advantage normalization, PPO updates, skill-tracker rating matches, policy-version writes, checkpoint saves, and metric serialization/flushing (`Iteration Time` and `Overhead Time` are logged alongside `Collection Time` and `Consumption Time`).
-- Across ranked campaign stages (`train_ranked.py` and `wandb_live_bridge.py`), stage `steps_per_second` and stage-boundary `Overall Steps/Second` also fold in subprocess startup/teardown, fixed-pool screen/confirmation evaluations, and checkpoint promotion copies.
+- Across ranked campaign stages (`train_ranked.py` and `ranked_wandb.py`), stage `steps_per_second` and stage-boundary `Overall Steps/Second` also fold in subprocess startup/teardown, fixed-pool screen/confirmation evaluations, and checkpoint promotion copies.
 
 ## Suspension ray casts
 
@@ -204,34 +207,58 @@ Three tools measure and check all of this, and they all run the repository's own
 - `tools/bench_paired.py` runs the two settings in the order A, B, B, A over the whole trainer and reports the throughput and the CPU time of the child process, which does not include the time that the process waits for the host.
 
 ## Automatic 30-minute GitHub backups
+
+This is the only GitHub traffic a campaign creates.
+
 `--github-backup` runs `tools/training_service.py` as a headless background worker (no HTTP server or web UI). Every `--backup-interval` seconds (default `1800` = 30 minutes, respected across restarts via `manifest.json`), it stages the latest checkpoint and minimal campaign state. In evolving-pool mode it includes exactly the current `learner/policy_versions/` set (10 by default), excludes duplicate pool/best/eval/metrics copies, hashes the snapshot, and pushes a verified commit to the current branch. The legacy fixed-pool backup format is retained for campaigns that have not enabled evolving opponents.
+
+The cadence is enforced in one place, so one push per 30 minutes is a hard ceiling:
+
+- **`seconds_until_backup_due` gates every attempt** on the last success or on
+  `training-backup/manifest.json`, so a restart, a stage boundary or a re-launched worker cannot
+  create a burst of commits. A failed push is retried at most once a minute, and only for the
+  commit that is already made.
+- **Nothing else in training talks to GitHub.** Metrics, ratings, evaluations and the W&B stream
+  never touch the repository, so no logging path can add API calls between backups. The worker
+  also writes `backup-status.json` (last backed-up checkpoint, next due time) when `--status-file`
+  is passed; it is informational and never triggers an extra request.
+- **Retention vs. cadence:** the trainer keeps its newest checkpoints and the worker pushes one
+  complete checkpoint every 30 minutes, so a checkpoint that lived for less than one interval is
+  not published. That is the intended trade-off: `--ts-per-save` (e.g. `10m`) and the stage length
+  (e.g. `15-30m`) keep checkpoints alive for at least one backup window, and a hard stop is
+  recovered from the newest local checkpoint plus the last published snapshot.
 
 ## Weights & Biases reporting
 
-- **Sandboxed / restricted network (`--wandb-bridge`):** `tools/wandb_live_bridge.py publish` writes compact compressed metric frames to a branch telemetry issue; `.github/workflows/wandb-live.yml` streams them live to online W&B (`step_metric='Total Timesteps'`), authenticating via repository secret `WANDB_API_KEY` or an ephemeral RSA-3072-OAEP-SHA256 handshake against `/dev/shm/.wandb_bridge_key` (never stored in Git or logs).
-- **Direct network (`--wandb-online` / `--wandb-offline`):** `tools/ranked_wandb.py` streams directly to online W&B or exports an offline run when direct outbound W&B access is available.
-- Reward-component diagnostics are sampled during training and appear under `Rewards/…`; use `python3 tools/resume_training.py --reward-metrics` to enable them on a resumed campaign without changing its frozen PPO/evaluation recipe. Lean-metrics campaigns can independently retain sampled per-player telemetry under `Player/…` with `python3 tools/resume_training.py --player-metrics`. Sparse JSONL/W&B output windows average ordinary numeric diagnostics across skipped iterations (while keeping cumulative counters and the timestep axis at their latest values); rating events are immediate and are never window-averaged. On this two-vCPU runner, `python3 tools/resume_training.py --throughput-profile cpu-20k` selects the fastest measured all-mode profile (64 games, one PPO epoch, one collection-inference thread); clean benchmarks peak near 19.5k overall SPS, though shared-host variability can lower that. The live run stores its delivery cursor in GitHub issue metadata, uses `Elo/…` for raw internal skill-tracker endpoints, and publishes neither `Live/…` nor `Stream/…` transport fields.
+Metrics leave the training host over exactly one connection: HTTPS to W&B. Telemetry never touches GitHub.
 
-### Where the W&B API key lives
+- **Direct streaming (`--wandb-online`, the default for `tools/resume_training.py`):**
+  `tools/ranked_wandb.py stream` tails the campaign's own durable files (`state.json`, `metrics/*.jsonl`,
+  `eval/*.json`) and logs every training row, stage rating and held-out audit sample straight into a single
+  resumable online W&B run (`step_metric='Total Timesteps'`). It holds no trainer lock, never rewrites campaign
+  state, and keeps its delivery cursor locally in `<out>/.relay_cursor.json`, so a restart never logs a step twice.
+- **Offline export (`--wandb-offline`, or `tools/ranked_wandb.py export`):** writes one closed offline run that can
+  be synced later. No credentials and no network are needed.
+- **Nothing goes through GitHub.** There is no `wandb-live.yml` workflow, no telemetry issue or comment feed, no
+  `gh api` call, no sealed-key handshake and no telemetry commit. The earlier GitHub relay existed only to bridge a
+  sandbox without W&B egress; it turned a metrics stream into repository API traffic and was removed, because
+  pushing metrics through GitHub is what produced the rate limits and the account restriction.
+- Reward-component diagnostics are sampled during training and appear under `Rewards/…`; use `python3 tools/resume_training.py --reward-metrics` to enable them on a resumed campaign without changing its frozen PPO/evaluation recipe. Lean-metrics campaigns can independently retain sampled per-player telemetry under `Player/…` with `python3 tools/resume_training.py --player-metrics`. Sparse JSONL/W&B output windows average ordinary numeric diagnostics across skipped iterations (while keeping cumulative counters and the timestep axis at their latest values); rating events are immediate and are never window-averaged. On this two-vCPU runner, `python3 tools/resume_training.py --throughput-profile cpu-20k` selects the fastest measured all-mode profile (64 games, one PPO epoch, one collection-inference thread); clean benchmarks peak near 19.5k overall SPS, though shared-host variability can lower that. The stream maps the native skill tracker's `Rating/…` rows to `Elo/…`, uses `Rating/…`/`Confirmation/…` for the anchored evaluations, and publishes neither `Live/…` nor `Stream/…` transport fields.
+- Streaming needs `WANDB_API_KEY` in the environment of the training process or a previous `wandb login`
+  (`pip install wandb`). Precedence is `WANDB_API_KEY`, then the local `wandb` credential file. Use
+  `--no-wandb` (`resume_training.py`) to keep the checkpoint backup but log nothing.
 
-Three homes, best first:
+### If the training host has no direct W&B egress
 
-1. **Repository secret `WANDB_API_KEY`** — Settings -> Secrets and variables -> Actions -> New repository secret.
-   The relay then authenticates itself: `has_api_key` skips the sealed-key handshake, so no copy has to exist in the
-   sandbox and nothing can be lost when the sandbox restarts. Setting it needs admin rights on the repository; a
-   GitHub App integration token gets `403 Resource not accessible by integration` even though it can push.
-2. **`.secrets/wandb_api_key`** in the workspace, mode `600` — this is where the publisher looks when `/dev/shm` is
-   empty. `/.secrets/` is gitignored, so the automatic 30-minute backup worker (`git add -A`) can never commit it,
-   and it survives with the workspace across sandbox restarts.
-3. **`/dev/shm/.wandb_bridge_key`** — the default `--key-file`. It is tmpfs: wiped on restart, which is why the feed
-   went dark after the last cleanup. Good for one session, not for storage.
+Fix the host's egress, or export offline and sync from a machine that has it:
 
-Precedence is `WANDB_API_KEY` env, then `--key-file`, then `.secrets/wandb_api_key`. Never put a key in tracked files,
-and never in a path the backup worker stages.
+```bash
+python3 tools/ranked_wandb.py export results/weights1700/campaign --out results/weights1700/wandb-offline
+wandb sync results/weights1700/wandb-offline
+```
 
-The repository secret is the configured path here: the relay reports `auth_mode=repo_secret` and the handshake never
-runs, so a sandbox copy should stay deleted. Delete a key the moment it is rotated out — a revoked key left in
-`/dev/shm` or `.secrets/` only makes the publisher answer a handshake with a credential that no longer works.
+Do not route metrics through the repository. A metrics feed on GitHub is API traffic against your own account,
+and a 15-second poll is enough to hit rate limits and get the account flagged.
 
 ## Regression tests
 

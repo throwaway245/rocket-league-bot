@@ -122,7 +122,7 @@ class RestoreTests(unittest.TestCase):
             state, resume_training.ROOT / 'results/weights1700-v3/campaign'
         )
         self.assertNotIn('--monitor', cmd)
-        for token in ('--github-backup', '--backup-interval', '1800', '--wandb-bridge',
+        for token in ('--github-backup', '--backup-interval', '1800', '--wandb-online',
                       '--mask-entropy', '--fuzzed-kickoffs',
                       '--pfsp', '--norm-advantages', 'mode', '--epochs', '2',
                       '--critic-lr', '0.0002', '--tactical-state-prob', '0.22',
