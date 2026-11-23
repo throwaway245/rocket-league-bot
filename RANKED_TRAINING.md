@@ -244,9 +244,40 @@ Metrics leave the training host over exactly one connection: HTTPS to W&B. Telem
   sandbox without W&B egress; it turned a metrics stream into repository API traffic and was removed, because
   pushing metrics through GitHub is what produced the rate limits and the account restriction.
 - Reward-component diagnostics are sampled during training and appear under `Rewards/…`; use `python3 tools/resume_training.py --reward-metrics` to enable them on a resumed campaign without changing its frozen PPO/evaluation recipe. Lean-metrics campaigns can independently retain sampled per-player telemetry under `Player/…` with `python3 tools/resume_training.py --player-metrics`. Sparse JSONL/W&B output windows average ordinary numeric diagnostics across skipped iterations (while keeping cumulative counters and the timestep axis at their latest values); rating events are immediate and are never window-averaged. On this two-vCPU runner, `python3 tools/resume_training.py --throughput-profile cpu-20k` selects the fastest measured all-mode profile (64 games, one PPO epoch, one collection-inference thread); clean benchmarks peak near 19.5k overall SPS, though shared-host variability can lower that. The stream maps the native skill tracker's `Rating/…` rows to `Elo/…`, uses `Rating/…`/`Confirmation/…` for the anchored evaluations, and publishes neither `Live/…` nor `Stream/…` transport fields.
-- Streaming needs `WANDB_API_KEY` in the environment of the training process or a previous `wandb login`
-  (`pip install wandb`). Precedence is `WANDB_API_KEY`, then the local `wandb` credential file. Use
-  `--no-wandb` (`resume_training.py`) to keep the checkpoint backup but log nothing.
+### Where the W&B API key lives
+
+Store it **once**, in a private file in your own config directory, outside the repository:
+
+```bash
+python3 tools/ranked_wandb.py login          # prompts, input hidden; writes ~/.config/wandb/api_key
+```
+
+That path is the default and it is deliberately chosen:
+
+| Property | Why |
+| --- | --- |
+| `~/.config/wandb/api_key`, mode `600` | Survives restarts, container recreation (with a mounted home/volume) and `git clone`s. Only your user can read it. |
+| Outside the working tree | The 30-minute backup worker only ever stages `training-backup/` (`git add -- <dest>`), and the streamer refuses to *write* a key inside the repository at all — so the key cannot leak into a commit or a backup. |
+| Not `/dev/shm` | tmpfs is wiped on restart; a key there has to be re-entered every session. |
+| Not `.secrets/` in the repo | Convenient but tied to a checkout: it dies with the working copy and lives one careless `git add -A` away from being published. |
+
+Resolution order, first hit wins (`tools/ranked_wandb.py`):
+
+1. `WANDB_API_KEY` in the environment — the right choice for a container, systemd unit or CI that injects
+   secrets at launch, and the only one that never touches disk.
+2. `--api-key-file`, default `~/.config/wandb/api_key`; point it elsewhere with `RANKED_WANDB_KEY_FILE`
+   (e.g. a Docker secret mount such as `/run/secrets/wandb_api_key`). A file that is group/world readable
+   or a symlink is **refused** rather than trusted.
+3. `~/.netrc` (`machine api.wandb.ai …`) — the standard home for machine credentials.
+4. whatever `wandb login` last wrote (W&B stores it in `~/.netrc`).
+
+No credential means no stream: the streamer stops with an instruction instead of logging anonymously.
+`pip install wandb` is required; training itself never needs it. Use `--no-wandb` (`resume_training.py`) to
+keep the checkpoint backup but log nothing.
+
+For a long-lived host, `systemd`/Docker is the cleanest home: inject `WANDB_API_KEY` as a secret at launch,
+or mount a `0600` key file and set `RANKED_WANDB_KEY_FILE` to it. Rotate by writing the new key over the old
+file (`login` overwrites atomically) and restarting the streamer.
 
 ### If the training host has no direct W&B egress
 

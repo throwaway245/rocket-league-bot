@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import patch
 import ranked_wandb
 
@@ -43,7 +45,8 @@ class StreamTests(unittest.TestCase):
             root = Path(tmp)
             write_campaign(root)
             run = FakeRun()
-            with patch.object(ranked_wandb, 'start', return_value=run) as start:
+            with patch.object(ranked_wandb, 'authenticate', return_value='test'), \
+                    patch.object(ranked_wandb, 'start', return_value=run) as start:
                 ranked_wandb.stream(root, root / 'out', interval=0.01, idle_timeout_minutes=0.001)
             self.assertTrue(start.call_args.kwargs['online'])
             self.assertEqual([r['Total Timesteps'] for r in run.rows], [1, 2])
@@ -56,7 +59,8 @@ class StreamTests(unittest.TestCase):
             self.assertTrue(run.closed)
             # Resuming the stream doesn't replay rows or completed evaluations.
             run.rows.clear()
-            with patch.object(ranked_wandb, 'start', return_value=run):
+            with patch.object(ranked_wandb, 'authenticate', return_value='test'), \
+                    patch.object(ranked_wandb, 'start', return_value=run):
                 ranked_wandb.stream(root, root / 'out', interval=0.01, idle_timeout_minutes=0.001)
             self.assertEqual(run.rows, [])
 
@@ -78,7 +82,8 @@ class StreamTests(unittest.TestCase):
                     (root / 'state.json').write_text(json.dumps(state))
 
             run.log = fake_log
-            with patch.object(ranked_wandb, 'start', return_value=run):
+            with patch.object(ranked_wandb, 'authenticate', return_value='test'), \
+                    patch.object(ranked_wandb, 'start', return_value=run):
                 ranked_wandb.stream(root, root / 'out', interval=0.01, max_minutes=0.02)
             stages = [r['Campaign/Stage'] for r in run.rows if 'Campaign/Stage' in r]
             self.assertEqual(stages, [0, 1])
@@ -140,3 +145,101 @@ class NoGithubTransportTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ApiKeyStorageTests(unittest.TestCase):
+    """The key must persist in one private place outside the repository — never in git."""
+
+    def setUp(self):
+        import os
+        self.os = os
+        self._env = dict(os.environ)
+        self._patch = patch.object(ranked_wandb, 'DEFAULT_KEY_FILE',
+                                   Path(os.environ['HOME']) / 'test-wandb-key')
+        self._patch.start()
+        os.environ.pop('WANDB_API_KEY', None)
+        os.environ.pop('RANKED_WANDB_KEY_FILE', None)
+
+    def tearDown(self):
+        self._patch.stop()
+        self.os.environ.clear()
+        self.os.environ.update(self._env)
+
+    def test_login_writes_a_private_file_outside_the_repository(self):
+        import stat
+        with tempfile.TemporaryDirectory() as home:
+            key_file = Path(home) / '.config/wandb/api_key'
+            path = ranked_wandb.store_api_key('wandb_v1_test_key\n', key_file)
+            self.assertEqual(path, key_file)
+            self.assertEqual(key_file.read_text().strip(), 'wandb_v1_test_key')
+            mode = stat.S_IMODE(key_file.stat().st_mode)
+            self.assertEqual(mode, 0o600)
+            self.assertEqual(stat.S_IMODE(key_file.parent.stat().st_mode), 0o700)
+            self.assertFalse(Path(ranked_wandb.__file__).resolve().parents[1]
+                             .resolve().is_relative_to(key_file.parent))
+
+    def test_stored_key_is_found_without_any_environment_variable(self):
+        with tempfile.TemporaryDirectory() as home:
+            key_file = Path(home) / '.config/wandb/api_key'
+            ranked_wandb.store_api_key('stored-key', key_file)
+            self.os.environ['RANKED_WANDB_KEY_FILE'] = str(key_file)
+            self.assertEqual(ranked_wandb.resolve_api_key(), ('stored-key', str(key_file)))
+
+    def test_environment_wins_over_the_stored_file(self):
+        with tempfile.TemporaryDirectory() as home:
+            key_file = Path(home) / 'key'
+            ranked_wandb.store_api_key('stored-key', key_file)
+            self.os.environ['RANKED_WANDB_KEY_FILE'] = str(key_file)
+            self.os.environ['WANDB_API_KEY'] = 'env-key'
+            self.assertEqual(ranked_wandb.resolve_api_key(), ('env-key', 'environment'))
+
+    def test_world_readable_key_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as home:
+            key_file = Path(home) / 'key'
+            key_file.write_text('leaky-key')
+            key_file.chmod(0o644)
+            self.os.environ['RANKED_WANDB_KEY_FILE'] = str(key_file)
+            with patch('sys.stderr'):
+                self.assertEqual(ranked_wandb.resolve_api_key()[0], '')
+
+    def test_symlinked_key_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as home:
+            real = Path(home) / 'real'; real.write_text('k'); real.chmod(0o600)
+            link = Path(home) / 'link'; link.symlink_to(real)
+            self.os.environ['RANKED_WANDB_KEY_FILE'] = str(link)
+            self.assertEqual(ranked_wandb.resolve_api_key()[0], '')
+
+    def test_key_netrc_entry_is_used_last(self):
+        with tempfile.TemporaryDirectory() as home:
+            netrc_path = Path(home) / '.netrc'
+            netrc_path.write_text('machine api.wandb.ai login user password netrc-key\n')
+            netrc_path.chmod(0o600)
+            self.os.environ['RANKED_WANDB_KEY_FILE'] = str(Path(home) / 'missing')
+            with patch.object(ranked_wandb, 'default_netrc', return_value=netrc_path):
+                self.assertEqual(ranked_wandb.resolve_api_key(), ('netrc-key', str(netrc_path)))
+
+    def test_refuses_to_write_a_key_inside_the_repository(self):
+        repo = Path(ranked_wandb.__file__).resolve().parents[1]
+        with self.assertRaises(SystemExit):
+            ranked_wandb.store_api_key('k', repo / '.secrets/wandb_api_key')
+
+    def test_authenticate_fails_loudly_instead_of_streaming_anonymously(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.os.environ['RANKED_WANDB_KEY_FILE'] = str(Path(home) / 'missing')
+            with patch.dict('sys.modules', {'wandb': type(sys)('wandb')}), \
+                    patch.object(ranked_wandb, 'default_netrc', return_value=Path(home) / 'none'):
+                with self.assertRaises(SystemExit) as caught:
+                    ranked_wandb.authenticate()
+            self.assertIn('login', str(caught.exception))
+
+    def test_resolved_key_is_handed_to_wandb_without_being_echoed(self):
+        fake = type(sys)('wandb')
+        fake.login = unittest.mock.MagicMock()
+        with tempfile.TemporaryDirectory() as home:
+            key_file = Path(home) / 'key'
+            ranked_wandb.store_api_key('secret-key', key_file)
+            self.os.environ['RANKED_WANDB_KEY_FILE'] = str(key_file)
+            with patch.dict('sys.modules', {'wandb': fake}):
+                self.assertEqual(ranked_wandb.authenticate(), str(key_file))
+            fake.login.assert_called_once_with(key='secret-key', relogin=True)
+            self.assertEqual(self.os.environ['WANDB_API_KEY'], 'secret-key')

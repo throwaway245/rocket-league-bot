@@ -25,6 +25,10 @@ python3 tools/show_rating.py training-backup
 # Restore working copy only (no training started):
 python3 tools/resume_training.py --restore-only
 
+# Store the W&B API key once for direct streaming (private file outside the repo, mode 600);
+# alternatively export WANDB_API_KEY or put it in ~/.netrc. See RANKED_TRAINING.md.
+python3 tools/ranked_wandb.py login
+
 # Explicitly resume paused training (30m GitHub backup + direct W&B streaming):
 python3 tools/resume_training.py
 
