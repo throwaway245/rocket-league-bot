@@ -58,6 +58,50 @@ def restore(snapshot=SNAPSHOT, work=WORK):
     return state
 
 
+# Native recipe tokens that train_ranked.py forwards itself. Everything else the preset pins
+# (--games, --mode-balance, --ts-per-itr, --fixed-rollout, --lean-metrics, --keep-checkpoints, ...)
+# travels as passthrough, exactly like running the recipe by hand.
+TRAINER_FLAGS_WITH_VALUE = {
+    '--threads', '--minibatch-size', '--batch-size', '--lr', '--critic-lr', '--epochs',
+    '--entropy-scale', '--norm-advantages', '--target-kl', '--gamma', '--gae-lambda',
+    '--return-stat-max-count', '--random-state-prob', '--tactical-state-prob', '--train-vs-old',
+    '--ts-per-version', '--max-versions', '--skill-minutes', '--ts-per-save', '--rewards',
+}
+TRAINER_FLAGS = {'--mask-entropy', '--fuzzed-kickoffs', '--pfsp'}
+# Owned by the runtime save cadence below, never replayed from the preset.
+CADENCE_FLAGS = {'--ts-per-save'}
+
+
+def split_recipe(train_args):
+    """Split a pinned native recipe into (trainer flags, native passthrough)."""
+    trainer, native, i = [], [], 0
+    args = list(train_args)
+    while i < len(args):
+        flag = args[i]
+        if flag in TRAINER_FLAGS_WITH_VALUE:
+            value = args[i + 1] if i + 1 < len(args) else ''
+            if flag not in CADENCE_FLAGS:
+                trainer += [flag, value]
+            i += 2
+            continue
+        if flag in TRAINER_FLAGS:
+            trainer.append(flag)
+            i += 1
+            continue
+        value = args[i + 1] if i + 1 < len(args) and not args[i + 1].startswith('--') else None
+        native.append(flag)
+        if value is not None:
+            native.append(value)
+            i += 2
+        else:
+            i += 1
+    return trainer, native
+
+
+def native_passthrough(train_args):
+    return split_recipe(train_args)[1]
+
+
 def build_resume_command(state, work, without_services=False, backup_interval=1800,
                          reward_metrics=False, player_metrics=False, throughput_profile=None,
                          continuous=False, evolving_opponents=False, opponent_pool_size=None,
@@ -75,24 +119,14 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
         cmd += ['--reference-pool', config['reference_pool']]
     if config.get('extra_versions'):
         cmd += ['--extra-versions', *config['extra_versions']]
-    # Replay the stored recipe verbatim (minus --ts-per-save, which the runtime save cadence
-    # below owns). train_ranked.py pins the whole config, so dropping or rewriting any token here
-    # makes the campaign refuse to resume. That check is what caught the old list here silently
-    # losing --games/--mode-balance/--fixed-rollout/--lean-metrics/--keep-checkpoints.
-    train_args = list(config['train_args'])
-    drop_with_value = {'--ts-per-save'}
-    i = 0
-    while i < len(train_args):
-        flag = train_args[i]
-        if flag in drop_with_value:
-            i += 2          # flag plus its value
-            continue
-        cmd.append(flag)
-        if not flag.startswith('--') or (i + 1 < len(train_args) and not train_args[i + 1].startswith('--')):
-            cmd.append(train_args[i + 1])
-            i += 2
-            continue
-        i += 1
+    # Replay the stored recipe exactly: the tokens train_ranked.py exposes as its own flags, plus
+    # everything else (--games, --mode-balance, --fixed-rollout, --lean-metrics, --keep-checkpoints,
+    # ...) as native passthrough. train_ranked.py pins the whole config and refuses to resume when
+    # it differs, so nothing may be dropped or rewritten here. --ts-per-save is the one exception:
+    # the derived save cadence owns it.
+    trainer_flags, native_flags = split_recipe(config['train_args'])
+    for flag in trainer_flags:
+        cmd.append('--minibatch' if flag == '--minibatch-size' else flag)
     if reward_metrics or (state.get('runtime_overrides') or {}).get('reward_metrics'):
         cmd.append('--reward-metrics')
     if player_metrics or (state.get('runtime_overrides') or {}).get('player_metrics'):
@@ -109,6 +143,8 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
                                             else runtime.get('opponent_pool_size', 10))]
         cmd += ['--promotion-margin', str(promotion_margin if promotion_margin is not None
                                            else runtime.get('promotion_margin', 50.0))]
+    if native_flags:
+        cmd.extend(native_flags)
     if not without_services:
         # 30-minute GitHub checkpoint backups; metrics go straight to W&B, never through GitHub.
         cmd += ['--github-backup', '--backup-interval', str(backup_interval)]

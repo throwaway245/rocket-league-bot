@@ -435,15 +435,13 @@ def beats_strongest(screen, confirm, pool, margin):
             confirm['Ranking'] >= strongest + margin), strongest, version
 
 
-def campaign(args):
-    out, learner = args.out, args.out / 'learner'
-    statefile = out / 'state.json'
-    base = checkpoint(args.base) if not statefile.exists() else Path(args.base)
-    if not base.name.isdecimal():
-        raise ValueError(f'Not a numbered checkpoint path: {base}')
-    if not args.bot.is_file():
-        raise ValueError(f'Build {args.bot} before starting the campaign')
-    plan = minutes_plan(args.minutes, args.pilot_minutes, args.block_minutes)
+def recipe_train_args(args):
+    """The native recipe this campaign pins, derived only from the driver's own flags.
+
+    Kept as a pure function so the resume path can be tested against it directly: whatever
+    `resume_training.build_resume_command` sends back has to reproduce this exactly, token for
+    token, or the campaign refuses to resume (`config != state['config']`).
+    """
     train_args = ['--threads', str(args.threads), '--games', '88', '--mode-balance', 'players',
                   '--ts-per-itr', '48384', '--batch-size', '12096',
                   '--fixed-rollout', '--lean-metrics', '--minibatch-size', str(args.minibatch),
@@ -484,6 +482,19 @@ def campaign(args):
         train_args.append('--fuzzed-kickoffs')
     if getattr(args, 'rewards', None):
         train_args.extend(['--rewards', args.rewards])
+    return train_args
+
+
+def campaign(args):
+    out, learner = args.out, args.out / 'learner'
+    statefile = out / 'state.json'
+    base = checkpoint(args.base) if not statefile.exists() else Path(args.base)
+    if not base.name.isdecimal():
+        raise ValueError(f'Not a numbered checkpoint path: {base}')
+    if not args.bot.is_file():
+        raise ValueError(f'Build {args.bot} before starting the campaign')
+    plan = minutes_plan(args.minutes, args.pilot_minutes, args.block_minutes)
+    train_args = recipe_train_args(args)
     config = dict(base=str(base), preset_sha256=hashlib.sha256((REPO / 'train_1v1_2v2_3v3.sh').read_bytes()).hexdigest(),
                   parent_steps=int(base.name), seed=args.seed, screen_seed=SCREEN,
                   confirm_seed=CONFIRM, audit_seed=getattr(args, 'audit_seed', AUDIT), rounds=args.rounds, train_args=train_args,
@@ -893,8 +904,7 @@ def campaign(args):
             wb.finish(exit_code=int(state['status'] == 'failed'))
 
 
-def main():
-    os.chdir(REPO)
+def build_arg_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', type=Path, required=True, help='Full numbered S checkpoint with a sibling policy_versions pool')
     parser.add_argument('--out', type=Path, required=True, help='Fresh campaign directory or a matching campaign to resume')
@@ -958,6 +968,12 @@ def main():
                         help='Number of saved historical policies in the evolving train/eval pool (default: 10)')
     parser.add_argument('--promotion-margin', type=float, default=50.0,
                         help='Raw endpoint Elo margin above the strongest pool member required for promotion (default: 50)')
+    return parser
+
+
+def main():
+    os.chdir(REPO)
+    parser = build_arg_parser()
     args = parser.parse_args()
     if args.backup_interval < 60:
         parser.error('--backup-interval must be at least 60 seconds')
