@@ -335,7 +335,7 @@ def stream(campaign, directory, interval=10.0, project=PROJECT, group=GROUP, run
               f'Logging into an OFFLINE run under {directory / "offline"} instead; '
               f'sync it later with: wandb sync {directory / "offline"}', flush=True)
         run = start(directory / 'offline', config, run_name, online=False, project=project, group=group)
-        source = 'offline' 
+        source = 'offline'
     deadline = None if max_minutes is None else time.monotonic() + max_minutes * 60.0
     idle_since = None
     try:

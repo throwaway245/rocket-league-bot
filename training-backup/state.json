@@ -804,8 +804,8 @@
   "pending": {
     "stage": 14,
     "start_steps": 5249604831,
-    "seconds": 0,
-    "wall_seconds": 180.04199374399832,
+    "seconds": 1053.822739277999,
+    "wall_seconds": 1053.8570724429992,
     "trained": false
   },
   "status": "paused",
