@@ -495,6 +495,7 @@ def campaign(args):
         raise ValueError(f'Build {args.bot} before starting the campaign')
     plan = minutes_plan(args.minutes, args.pilot_minutes, args.block_minutes)
     train_args = recipe_train_args(args)
+    train_args = [*train_args, *getattr(args, 'native_args', [])]
     config = dict(base=str(base), preset_sha256=hashlib.sha256((REPO / 'train_1v1_2v2_3v3.sh').read_bytes()).hexdigest(),
                   parent_steps=int(base.name), seed=args.seed, screen_seed=SCREEN,
                   confirm_seed=CONFIRM, audit_seed=getattr(args, 'audit_seed', AUDIT), rounds=args.rounds, train_args=train_args,
@@ -752,7 +753,8 @@ def campaign(args):
                     pending['wall_seconds'] = prior_wall + now - stage_wall_start
                     write(statefile, state)
                 cmd = ['bash', 'train_1v1_2v2_3v3.sh', '--checkpoints', learner, *train_args,
-                       *runtime_train_args, '--seed', args.seed + i, '--run-name', 'three-mode-ranking',
+                       *runtime_train_args, *getattr(args, 'native_args', []),
+                       '--seed', args.seed + i, '--run-name', 'three-mode-ranking',
                        '--max-minutes', max(0.02, minutes - previous / 60)]
                 if runtime_overrides.get('evolving_opponents', False):
                     # Do not let the native saver append unqualified policies: only the outer
@@ -974,7 +976,15 @@ def build_arg_parser():
 def main():
     os.chdir(REPO)
     parser = build_arg_parser()
-    args = parser.parse_args()
+    # Everything after `--` is native recipe passthrough (--games, --mode-balance, --ts-per-itr,
+    # --fixed-rollout, --lean-metrics, --keep-checkpoints, ...), appended last so it wins over the
+    # preset exactly like running the recipe by hand.
+    argv = sys.argv[1:]
+    extra = argv[argv.index('--') + 1:] if '--' in argv else []
+    if '--' in argv:
+        argv = argv[:argv.index('--')]
+    args = parser.parse_args(argv)
+    args.native_args = extra
     if args.backup_interval < 60:
         parser.error('--backup-interval must be at least 60 seconds')
     if args.target_ranking is not None and not (0 < args.target_ranking < 10000):

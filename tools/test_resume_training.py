@@ -141,11 +141,13 @@ class RestoreTests(unittest.TestCase):
     def replay(self, cmd):
         """Parse a resume command the way train_ranked.main() does.
 
-        train_ranked parses its own flags and forwards everything else (--games, --mode-balance,
-        --ts-per-itr, --fixed-rollout, --lean-metrics, --keep-checkpoints) to the native trainer.
+        Everything up to `--` is driver flags; everything after it is the native recipe the driver
+        forwards to the trainer (--games, --mode-balance, --ts-per-itr, --fixed-rollout,
+        --lean-metrics, --keep-checkpoints).
         """
-        parser = train_ranked.build_arg_parser()
-        return parser.parse_known_args([str(a) for a in cmd[2:]])
+        argv = [str(a) for a in cmd[2:]]
+        cut = argv.index('--')
+        return train_ranked.build_arg_parser().parse_args(argv[:cut]), argv[cut + 1:]
 
     def build(self, **kwargs):
         return resume_training.build_resume_command(

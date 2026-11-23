@@ -143,13 +143,15 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
                                             else runtime.get('opponent_pool_size', 10))]
         cmd += ['--promotion-margin', str(promotion_margin if promotion_margin is not None
                                            else runtime.get('promotion_margin', 50.0))]
-    if native_flags:
-        cmd.extend(native_flags)
     if not without_services:
         # 30-minute GitHub checkpoint backups; metrics go straight to W&B, never through GitHub.
         cmd += ['--github-backup', '--backup-interval', str(backup_interval)]
         if wandb_online:
             cmd += ['--wandb-online', '--wandb-interval', str(wandb_interval)]
+    if native_flags:
+        # Native passthrough last: train_ranked forwards everything after `--` to the trainer, so
+        # the preset travels unchanged instead of being rejected as an unknown driver flag.
+        cmd.extend(['--', *native_flags])
     return cmd
 
 
