@@ -75,24 +75,24 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
         cmd += ['--reference-pool', config['reference_pool']]
     if config.get('extra_versions'):
         cmd += ['--extra-versions', *config['extra_versions']]
-    train_args = config['train_args']
-    defaults = {'--lr': '1e-4', '--batch-size': '12096', '--skill-minutes': '15', '--ts-per-save': '5m'}
-    # --ts-per-save is chosen per cycle by the runtime profile below (retention-aware); the
-    # recipe's stored value is deliberately not replayed so the two cannot conflict.
-    for flag in ('--threads', '--minibatch-size', '--lr', '--critic-lr', '--epochs', '--batch-size',
-                 '--entropy-scale', '--norm-advantages', '--target-kl', '--gamma', '--gae-lambda',
-                 '--return-stat-max-count', '--random-state-prob', '--tactical-state-prob',
-                 '--train-vs-old', '--ts-per-version', '--max-versions', '--skill-minutes',
-                 '--rewards'):
-        if flag not in train_args:
+    # Replay the stored recipe verbatim (minus --ts-per-save, which the runtime save cadence
+    # below owns). train_ranked.py pins the whole config, so dropping or rewriting any token here
+    # makes the campaign refuse to resume. That check is what caught the old list here silently
+    # losing --games/--mode-balance/--fixed-rollout/--lean-metrics/--keep-checkpoints.
+    train_args = list(config['train_args'])
+    drop_with_value = {'--ts-per-save'}
+    i = 0
+    while i < len(train_args):
+        flag = train_args[i]
+        if flag in drop_with_value:
+            i += 2          # flag plus its value
             continue
-        value = train_args[train_args.index(flag) + 1]
-        if defaults.get(flag) == value:
-            continue  # preserve exact default config entries
-        cmd += ['--minibatch' if flag == '--minibatch-size' else flag, value]
-    for flag in ('--mask-entropy', '--fuzzed-kickoffs', '--pfsp'):
-        if flag in train_args:
-            cmd.append(flag)
+        cmd.append(flag)
+        if not flag.startswith('--') or (i + 1 < len(train_args) and not train_args[i + 1].startswith('--')):
+            cmd.append(train_args[i + 1])
+            i += 2
+            continue
+        i += 1
     if reward_metrics or (state.get('runtime_overrides') or {}).get('reward_metrics'):
         cmd.append('--reward-metrics')
     if player_metrics or (state.get('runtime_overrides') or {}).get('player_metrics'):

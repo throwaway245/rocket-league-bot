@@ -44,7 +44,7 @@ python3 tools/train_ranked.py \
   --minutes 4320 --pilot-minutes 15 --block-minutes 30 --rounds 40 \
   --seed 20261121 --audit-seed 4001 \
   --evolving-opponents --opponent-pool-size 15 --promotion-margin 50.0 \
-  --continuous --throughput-profile cpu-20k --reward-metrics --player-metrics \
+  --continuous --throughput-profile cpu-20k --reward-metrics \
   --lr 9e-5 --critic-lr 0.00022 --epochs 2 --entropy-scale 0.008 \
   --norm-advantages mode --target-kl 0.02 --gamma 0.995 \
   --return-stat-max-count 200000 --random-state-prob 0.0 --tactical-state-prob 0.15 \
@@ -58,6 +58,21 @@ The seed pool is the `policy_versions` folder next to `--base`; the campaign cop
 directory and never trains in the canonical snapshot. In `--continuous` mode the block length, not
 `--minutes`, decides how long each training stage runs, and the campaign repeats until it is
 interrupted.
+
+## Checkpoint cadence and resuming
+
+- **Saves are derived, not guessed.** `--ts-per-save` is computed per cycle
+  (`train_ranked.save_cadence_args`) from the campaign's measured steps/second and capped at
+  `--backup-interval × (keep − 1)` and at half a stage, so a kept checkpoint always survives until
+  the 30-minute backup worker has published it. A continuous campaign's first stage is only half a
+  block long, so `--ts-per-save-after-first` gives it a shorter interval until its own checkpoint
+  exists. An explicit `--ts-per-save` still wins, and is recorded in the pinned config.
+- **`resume_training.py` replays the pinned recipe token for token.** `train_ranked.py` pins the
+  entire config (`train_args`, plan, seeds, pool hash) and refuses to continue when anything
+  differs, so the resume builder forwards the stored tokens verbatim (minus the cadence above).
+  A regression test asserts the round trip — the previous builder silently dropped `--games`,
+  `--mode-balance`, `--fixed-rollout`, `--lean-metrics` and `--keep-checkpoints`, which made resuming
+  fail the integrity check.
 
 ## Fixed-pool evaluation protocol
 
@@ -243,7 +258,7 @@ Metrics leave the training host over exactly one connection: HTTPS to W&B. Telem
   `gh api` call, no sealed-key handshake and no telemetry commit. The earlier GitHub relay existed only to bridge a
   sandbox without W&B egress; it turned a metrics stream into repository API traffic and was removed, because
   pushing metrics through GitHub is what produced the rate limits and the account restriction.
-- Reward-component diagnostics are sampled during training and appear under `Rewards/…`; use `python3 tools/resume_training.py --reward-metrics` to enable them on a resumed campaign without changing its frozen PPO/evaluation recipe. Lean-metrics campaigns can independently retain sampled per-player telemetry under `Player/…` with `python3 tools/resume_training.py --player-metrics`. Sparse JSONL/W&B output windows average ordinary numeric diagnostics across skipped iterations (while keeping cumulative counters and the timestep axis at their latest values); rating events are immediate and are never window-averaged. On this two-vCPU runner, `python3 tools/resume_training.py --throughput-profile cpu-20k` selects the fastest measured all-mode profile (64 games, one PPO epoch, one collection-inference thread); clean benchmarks peak near 19.5k overall SPS, though shared-host variability can lower that. The stream maps the native skill tracker's `Rating/…` rows to `Elo/…`, uses `Rating/…`/`Confirmation/…` for the anchored evaluations, and publishes neither `Live/…` nor `Stream/…` transport fields.
+- Reward-component diagnostics are sampled during training and appear under `Rewards/…`; use `python3 tools/resume_training.py --reward-metrics` to enable them on a resumed campaign without changing its frozen PPO/evaluation recipe. `--player-metrics` retains sampled per-player telemetry under `Player/…`, but it measured about 7 % throughput loss on the two-vCPU runner (5-iteration repeats: 19.4-21.3k → 18.0-19.3k steps/s) and an evolving campaign's backup stores no `metrics/`, so its output is not kept — leave it off unless you are actively reading `Player/…` locally. Sparse JSONL/W&B output windows average ordinary numeric diagnostics across skipped iterations (while keeping cumulative counters and the timestep axis at their latest values); rating events are immediate and are never window-averaged. On this two-vCPU runner, `python3 tools/resume_training.py --throughput-profile cpu-20k` selects the fastest measured all-mode profile (64 games, one PPO epoch, one collection-inference thread); clean benchmarks peak near 19.5k overall SPS, though shared-host variability can lower that. The stream maps the native skill tracker's `Rating/…` rows to `Elo/…`, uses `Rating/…`/`Confirmation/…` for the anchored evaluations, and publishes neither `Live/…` nor `Stream/…` transport fields.
 ### Where the W&B API key lives
 
 Store it **once**, in a private file in your own config directory, outside the repository:

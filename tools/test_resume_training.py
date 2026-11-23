@@ -93,6 +93,198 @@ class RestoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify(root / 'snapshot')
 
+    def state(self):
+        """A v3-style campaign record with the fields the resume builder reads."""
+        return {
+            'target_ranking': 1700.0,
+            'runtime_overrides': {'reward_metrics': True, 'player_metrics': True,
+                                  'throughput_profile': 'cpu-20k', 'continuous': True,
+                                  'evolving_opponents': True, 'opponent_pool_size': 10,
+                                  'promotion_margin': 50.0},
+            'config': {
+                'base': 'checkpoints/3244539846',
+                'minutes': [12, 20, 20],
+                'rounds': 40,
+                'seed': 20261118,
+                'audit_seed': 9007,
+                'reference_pool': 'training-backup/pool',
+                'extra_versions': ['checkpoints/3137998278'],
+                'train_args': [
+                    '--threads', '2', '--games', '88', '--mode-balance', 'players',
+                    '--ts-per-itr', '48384', '--batch-size', '12096', '--fixed-rollout',
+                    '--lean-metrics', '--minibatch-size', '1008',
+                    '--lr', '0.00011', '--critic-lr', '0.0002', '--epochs', '2',
+                    '--entropy-scale', '0.0025', '--norm-advantages', 'mode',
+                    '--target-kl', '0.02', '--tactical-state-prob', '0.22',
+                    '--train-vs-old', '0.3', '--ts-per-save', '10m', '--keep-checkpoints', '2',
+                    '--mask-entropy', '--fuzzed-kickoffs', '--pfsp',
+                    '--rewards', 'Goal=600,Save=65',
+                ],
+            },
+        }
+
+    def pinned_recipe(self, state):
+        """The native tokens train_ranked.py pins, minus the cadence it derives per cycle."""
+        args = list(state['config']['train_args'])
+        out, i = [], 0
+        while i < len(args):
+            if args[i] == '--ts-per-save':
+                i += 2
+                continue
+            out.append(args[i])
+            i += 1
+        return out
+
+    def forwarded_recipe(self, cmd):
+        argv = [str(a) for a in cmd[2:]]
+        return argv[argv.index('--threads'):argv.index('--reward-metrics')]
+
+    def test_build_resume_command_reproduces_the_pinned_recipe_verbatim(self):
+        state = self.state()
+        cmd = resume_training.build_resume_command(
+            state, resume_training.ROOT / 'results/weights1700-v3/campaign')
+        self.assertNotIn('--monitor', cmd)
+        # Every pinned token has to reach the trainer unchanged: train_ranked.py compares the whole
+        # config and refuses to resume otherwise. The old builder silently dropped --games,
+        # --mode-balance, --fixed-rollout, --lean-metrics and --keep-checkpoints.
+        self.assertEqual(self.forwarded_recipe(cmd), self.pinned_recipe(state))
+        for token in ('--games', '88', '--mode-balance', 'players', '--fixed-rollout',
+                      '--lean-metrics', '--keep-checkpoints', '2', '--batch-size', '12096'):
+            self.assertIn(token, cmd)
+        for token in ('--github-backup', '--backup-interval', '1800', '--wandb-online',
+                      '--mask-entropy', '--fuzzed-kickoffs',
+                      '--pfsp', '--norm-advantages', 'mode', '--epochs', '2',
+                      '--critic-lr', '0.0002', '--tactical-state-prob', '0.22',
+                      '--extra-versions', 'checkpoints/3137998278', '--reward-metrics', '--player-metrics',
+                      '--throughput-profile', 'cpu-20k', '--continuous', '--evolving-opponents',
+                      '--opponent-pool-size', '10', '--promotion-margin', '50.0'):
+            self.assertIn(token, cmd)
+
+    def test_without_services_drops_backup_and_stream_but_keeps_the_recipe(self):
+        state = self.state()
+        cmd = resume_training.build_resume_command(
+            state, resume_training.ROOT / 'results/weights1700-v3/campaign', without_services=True)
+        self.assertNotIn('--github-backup', cmd)
+        self.assertNotIn('--wandb-online', cmd)
+        self.assertEqual(self.forwarded_recipe(cmd), self.pinned_recipe(state))
+
+    def test_no_wandb_keeps_the_backup_worker(self):
+        state = self.state()
+        cmd = resume_training.build_resume_command(
+            state, resume_training.ROOT / 'results/weights1700-v3/campaign', wandb_online=False)
+        self.assertIn('--github-backup', cmd)
+        self.assertNotIn('--wandb-online', cmd)
+
+    def test_restore_only_uses_saved_campaign_path_without_starting_training(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot = root / 'snapshot'
+            self.make_snapshot(snapshot)
+            state = json.loads((snapshot / 'state.json').read_text())
+            state['working_directory'] = 'results/weights1700/campaign'
+            payload = json.dumps(state).encode()
+            (snapshot / 'state.json').write_bytes(payload)
+            (snapshot / 'manifest.json').write_text(json.dumps({'checkpoint': 123,
+                'sha256': {'state.json': hashlib.sha256(payload).hexdigest()}}))
+            with patch.object(resume_training, 'ROOT', root), patch.object(resume_training, 'SNAPSHOT', snapshot), \
+                 patch.object(resume_training, 'WORK', root / 'results/old'), \
+                 patch.object(resume_training, 'restore', wraps=lambda **kw: restore(snapshot=snapshot, **kw)), \
+                 patch.object(resume_training.subprocess, 'run') as launch, \
+                 patch('sys.argv', ['resume_training.py', '--restore-only']):
+                resume_training.main()
+            self.assertTrue((root / 'results/weights1700/campaign/state.json').exists())
+            self.assertFalse((root / 'results/old').exists())
+            launch.assert_not_called()
+
+    def test_traversal_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_snapshot(root / 'snapshot')
+            (root / 'snapshot/manifest.json').write_text(json.dumps({'sha256': {'../outside': 'bad'}}))
+            with self.assertRaises(ValueError):
+                verify(root / 'snapshot')
+
+    def pinned_recipe(self, state):
+        """The native tokens train_ranked.py pins, minus the cadence it derives per cycle."""
+        args = list(state['config']['train_args'])
+        out, i = [], 0
+        while i < len(args):
+            if args[i] == '--ts-per-save':
+                i += 2
+                continue
+            out.append(args[i])
+            i += 1
+        return out
+
+    def forwarded_recipe(self, cmd):
+        argv = [str(a) for a in cmd[2:]]
+        return argv[argv.index('--threads'):argv.index('--reward-metrics')]
+
+    def test_build_resume_command_reproduces_the_pinned_recipe_verbatim(self):
+        state = self.state()
+        cmd = resume_training.build_resume_command(
+            state, resume_training.ROOT / 'results/weights1700-v3/campaign')
+        self.assertNotIn('--monitor', cmd)
+        # Every pinned token must reach the trainer unchanged: train_ranked.py compares the whole
+        # config and refuses to resume otherwise. The old builder silently dropped --games,
+        # --mode-balance, --fixed-rollout, --lean-metrics and --keep-checkpoints.
+        self.assertEqual(self.forwarded_recipe(cmd), self.pinned_recipe(state))
+        for token in ('--games', '88', '--mode-balance', 'players', '--fixed-rollout',
+                      '--lean-metrics', '--keep-checkpoints', '2', '--batch-size', '12096'):
+            self.assertIn(token, cmd)
+        for token in ('--github-backup', '--backup-interval', '1800', '--wandb-online',
+                      '--mask-entropy', '--fuzzed-kickoffs',
+                      '--pfsp', '--norm-advantages', 'mode', '--epochs', '2',
+                      '--critic-lr', '0.0002', '--tactical-state-prob', '0.22',
+                      '--extra-versions', 'checkpoints/3137998278', '--reward-metrics', '--player-metrics',
+                      '--throughput-profile', 'cpu-20k', '--continuous', '--evolving-opponents',
+                      '--opponent-pool-size', '10', '--promotion-margin', '50.0'):
+            self.assertIn(token, cmd)
+
+    def test_without_services_drops_backup_and_stream_but_keeps_the_recipe(self):
+        state = self.state()
+        cmd = resume_training.build_resume_command(
+            state, resume_training.ROOT / 'results/weights1700-v3/campaign', without_services=True)
+        self.assertNotIn('--github-backup', cmd)
+        self.assertNotIn('--wandb-online', cmd)
+        self.assertEqual(self.forwarded_recipe(cmd), self.pinned_recipe(state))
+
+    def test_no_wandb_keeps_the_backup_worker(self):
+        state = self.state()
+        cmd = resume_training.build_resume_command(
+            state, resume_training.ROOT / 'results/weights1700-v3/campaign', wandb_online=False)
+        self.assertIn('--github-backup', cmd)
+        self.assertNotIn('--wandb-online', cmd)
+
+    def test_restore_only_uses_saved_campaign_path_without_starting_training(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot = root / 'snapshot'
+            self.make_snapshot(snapshot)
+            state = json.loads((snapshot / 'state.json').read_text())
+            state['working_directory'] = 'results/weights1700/campaign'
+            payload = json.dumps(state).encode()
+            (snapshot / 'state.json').write_bytes(payload)
+            (snapshot / 'manifest.json').write_text(json.dumps({'checkpoint': 123,
+                'sha256': {'state.json': hashlib.sha256(payload).hexdigest()}}))
+            with patch.object(resume_training, 'ROOT', root), patch.object(resume_training, 'SNAPSHOT', snapshot), \
+                 patch.object(resume_training, 'WORK', root / 'results/old'), \
+                 patch.object(resume_training, 'restore', wraps=lambda **kw: restore(snapshot=snapshot, **kw)), \
+                 patch.object(resume_training.subprocess, 'run') as launch, \
+                 patch('sys.argv', ['resume_training.py', '--restore-only']):
+                resume_training.main()
+            self.assertTrue((root / 'results/weights1700/campaign/state.json').exists())
+            self.assertFalse((root / 'results/old').exists())
+            launch.assert_not_called()
+
+    def test_traversal_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_snapshot(root / 'snapshot')
+            (root / 'snapshot/manifest.json').write_text(json.dumps({'sha256': {'../outside': 'bad'}}))
+            with self.assertRaises(ValueError):
+                verify(root / 'snapshot')
+
     def test_build_resume_command_preserves_new_recipe_and_30m_backup(self):
         state = {
             'target_ranking': 1700.0,

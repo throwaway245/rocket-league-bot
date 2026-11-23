@@ -459,8 +459,10 @@ def campaign(args):
         ('tactical_state_prob', '--tactical-state-prob'),
         ('train_vs_old', '--train-vs-old'),
         ('ts_per_version', '--ts-per-version'), ('max_versions', '--max-versions'),
-        ('skill_minutes', '--skill-minutes'), ('ts_per_save', '--ts-per-save'),
+        ('skill_minutes', '--skill-minutes'),
     ]
+    # --ts-per-save is not part of this list: the runtime save cadence (save_cadence_args /
+    # THROUGHPUT_PROFILES) owns it, and an explicit --ts-per-save is applied there, last.
     for attribute, flag in overrides:
         value = getattr(args, attribute, None)
         if value is not None:
@@ -599,6 +601,19 @@ def campaign(args):
         write(statefile, state)
     runtime_overrides = state.get('runtime_overrides') or {}
     runtime_train_args = []
+    if getattr(args, 'ts_per_save', None):
+        # An explicit interval wins over the derived cadence, in the config as well as on the
+        # command line, so the pinned recipe stays reproducible.
+        train_args = train_args[:train_args.index('--ts-per-save') + 2] if '--ts-per-save' in train_args else train_args
+        if train_args and train_args[-2] == '--ts-per-save':
+            train_args[-1] = args.ts_per_save
+        else:
+            train_args += ['--ts-per-save', args.ts_per_save]
+        config['train_args'] = train_args
+        runtime_train_args.extend(['--ts-per-save', args.ts_per_save])
+        cadence_set = True
+    else:
+        cadence_set = False
     if runtime_overrides.get('reward_metrics'):
         runtime_train_args.append('--reward-metrics')
     if runtime_overrides.get('player_metrics'):
@@ -608,14 +623,14 @@ def campaign(args):
         runtime_overrides['fuzzed_kickoffs'] = True
         state['runtime_overrides'] = runtime_overrides
         write(statefile, state)
-    if runtime_overrides.get('throughput_profile'):
+    if not cadence_set and runtime_overrides.get('throughput_profile'):
         # Benchmarked on the two-vCPU CPU runner: this is the fastest stable all-mode profile,
         # with best clean measurements near 19.5k overall SPS. Shared-host variance still applies.
         runtime_train_args.extend(profile_train_args(
             runtime_overrides['throughput_profile'],
             continuous=runtime_overrides.get('continuous', False),
             block_minutes=getattr(args, 'block_minutes', 30)))
-    else:
+    elif not cadence_set:
         # No profile: keep the recipe, but still keep the save cadence inside one backup window.
         runtime_train_args.extend(save_cadence_args(
             state, continuous=runtime_overrides.get('continuous', False),
