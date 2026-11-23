@@ -92,6 +92,42 @@ class StreamTests(unittest.TestCase):
             self.assertFalse(run.summary['Campaign/Status'] != 'training')
 
 
+class OfflineFallbackTests(unittest.TestCase):
+    """A host that cannot reach W&B must keep syncable metrics, not lose them."""
+
+    def test_unreachable_wandb_falls_back_to_a_local_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_campaign(root)
+            run = FakeRun()
+            calls = []
+
+            def fake_start(directory, *a, **kw):
+                calls.append((Path(directory), kw.get('online')))
+                if kw.get('online'):
+                    raise ConnectionError('TLS/SSL connection has been closed (EOF)')
+                return run
+
+            with patch.object(ranked_wandb, 'authenticate', return_value='test'), \
+                    patch.object(ranked_wandb, 'start', side_effect=fake_start):
+                ranked_wandb.stream(root, root / 'out', interval=0.01, idle_timeout_minutes=0.001,
+                                    offline_fallback=True)
+            self.assertEqual(calls[0][1], True)
+            self.assertEqual(calls[1][0], root / 'out/offline')
+            self.assertFalse(calls[1][1])           # offline run
+            self.assertEqual([r['Total Timesteps'] for r in run.rows], [1, 2])
+            self.assertTrue(run.closed)
+
+    def test_without_the_flag_a_network_failure_still_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_campaign(root)
+            with patch.object(ranked_wandb, 'authenticate', return_value='test'), \
+                    patch.object(ranked_wandb, 'start', side_effect=ConnectionError('blocked')):
+                with self.assertRaises(ConnectionError):
+                    ranked_wandb.stream(root, root / 'out', interval=0.01, idle_timeout_minutes=0.001)
+
+
 class ExportTests(unittest.TestCase):
     def test_export_writes_completed_rows_and_stages_offline(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -309,17 +309,33 @@ def authenticate(explicit_key=''):
 
 def stream(campaign, directory, interval=10.0, project=PROJECT, group=GROUP, run_name='three-mode-ranking-live',
            idle_timeout_minutes=60.0, max_minutes=None, once=False, stop_statuses=('complete', 'paused', 'failed'),
-           api_key=''):
-    """Tail durable campaign JSON and log it directly to online W&B until it stops moving."""
+           api_key='', offline_fallback=False):
+    """Tail durable campaign JSON and log it directly to online W&B until it stops moving.
+
+    With `offline_fallback`, a host that cannot reach W&B (or has no credential) keeps logging
+    into a local, syncable run under `<directory>/offline` instead of losing the metrics. Nothing
+    is retried in a loop: the reason is printed once, and `wandb sync` uploads the run later.
+    """
     campaign = Path(campaign)
     directory = Path(directory)
     state = json.loads((campaign / 'state.json').read_text())  # the writer renames atomically
     config = state.get('config') or {}
     last_step, stages = read_cursor(directory)
-    source = authenticate(api_key)
-    run = start(directory, config, run_name, online=True,
-                run_id=campaign_run_id(campaign, config), project=project, group=group)
-    print(f'Online W&B run: {run.url} (credential: {source})', flush=True)
+    run, source = None, 'none'
+    try:
+        source = authenticate(api_key)
+        run = start(directory, config, run_name, online=True,
+                    run_id=campaign_run_id(campaign, config), project=project, group=group)
+        print(f'Online W&B run: {run.url} (credential: {source})', flush=True)
+    except BaseException as exc:
+        if not offline_fallback or isinstance(exc, KeyboardInterrupt):
+            raise
+        # Common on sandboxes that block W&B egress. Keep the data, do not spin.
+        print(f'W&B is not usable from this host ({type(exc).__name__}: {str(exc)[:200]}).\n'
+              f'Logging into an OFFLINE run under {directory / "offline"} instead; '
+              f'sync it later with: wandb sync {directory / "offline"}', flush=True)
+        run = start(directory / 'offline', config, run_name, online=False, project=project, group=group)
+        source = 'offline' 
     deadline = None if max_minutes is None else time.monotonic() + max_minutes * 60.0
     idle_since = None
     try:
@@ -416,6 +432,9 @@ def main():
 
     st.add_argument('--api-key-file', type=Path, default=None,
                     help='Key file override (default: env RANKED_WANDB_KEY_FILE or ~/.config/wandb/api_key)')
+    st.add_argument('--offline-fallback', action='store_true',
+                    help='If W&B is unreachable or unauthenticated, log into <out>/offline instead of '
+                         'exiting (sync later with `wandb sync`); never loses metrics')
 
     args = parser.parse_args()
     if getattr(args, 'interval', 1) <= 0:
@@ -437,7 +456,8 @@ def main():
             os.environ['RANKED_WANDB_KEY_FILE'] = str(args.api_key_file)
         stream(args.campaign, args.out, interval=args.interval, project=args.project, group=args.group,
                run_name=args.run_name, idle_timeout_minutes=args.idle_timeout_minutes,
-               max_minutes=args.max_minutes, once=args.once)
+               max_minutes=args.max_minutes, once=args.once,
+               offline_fallback=args.offline_fallback)
     else:
         export(args.campaign, args.out, project=args.project, group=args.group)
 

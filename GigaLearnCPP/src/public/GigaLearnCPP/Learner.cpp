@@ -581,7 +581,16 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 			}
 
 			if (!config.checkpointFolder.empty()) {
-				if (totalTimesteps / config.tsPerSave > prevTimesteps / config.tsPerSave) {
+				int64_t tsPerSave = config.tsPerSave;
+				if (config.tsPerSaveAfterFirst > 0) {
+					// The first cycle is often shorter than tsPerSave; use the shorter interval until
+					// one checkpoint of this run exists, then the regular one.
+					bool anySaved = false;
+					for (auto& dir : Utils::FindNumberedDirs(config.checkpointFolder))
+						if (dir > prevTimesteps) { anySaved = true; break; }
+					tsPerSave = anySaved ? config.tsPerSave : config.tsPerSaveAfterFirst;
+				}
+				if (totalTimesteps / tsPerSave > prevTimesteps / tsPerSave) {
 					// Auto-save
 					Save();
 				}

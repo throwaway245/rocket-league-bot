@@ -1248,6 +1248,7 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "rewards", "", "Reward weights that differ from the defaults, e.g. \"VelocityBallToGoal=6,Air=0\" (0 = off), see the list below — or a named preset: v3 (the 66-cycle campaign), v4 (dense RLGym-style shaping restored)" },
 	{ "seed", "123", "Random seed of the training or the evaluation, -1 = use the current time" },
 	{ "ts-per-save", "1000000", "Timesteps between checkpoints" },
+	{ "ts-per-save-after-first", "0", "Timesteps between checkpoints once the first one of this run exists (0 = use --ts-per-save)" },
 	{ "keep-checkpoints", "8", "Number of checkpoints kept before the oldest are deleted, -1 = keep all" },
 	{ "max-timesteps", "0", "Save and stop once this many total timesteps are reached, 0 = no limit" },
 	{ "max-minutes", "0", "Save and stop after this many minutes, 0 = no limit" },
@@ -2026,6 +2027,7 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 
 	cfg.checkpointFolder = opt.Str("checkpoints");
 	cfg.tsPerSave = opt.Int("ts-per-save");
+	cfg.tsPerSaveAfterFirst = opt.Int("ts-per-save-after-first");
 	cfg.checkpointsToKeep = (int)opt.Int("keep-checkpoints");
 
 	cfg.sendMetrics = !opt.Has("no-metrics"); // Send metrics

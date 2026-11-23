@@ -77,11 +77,13 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
         cmd += ['--extra-versions', *config['extra_versions']]
     train_args = config['train_args']
     defaults = {'--lr': '1e-4', '--batch-size': '12096', '--skill-minutes': '15', '--ts-per-save': '5m'}
+    # --ts-per-save is chosen per cycle by the runtime profile below (retention-aware); the
+    # recipe's stored value is deliberately not replayed so the two cannot conflict.
     for flag in ('--threads', '--minibatch-size', '--lr', '--critic-lr', '--epochs', '--batch-size',
                  '--entropy-scale', '--norm-advantages', '--target-kl', '--gamma', '--gae-lambda',
                  '--return-stat-max-count', '--random-state-prob', '--tactical-state-prob',
                  '--train-vs-old', '--ts-per-version', '--max-versions', '--skill-minutes',
-                 '--ts-per-save', '--rewards'):
+                 '--rewards'):
         if flag not in train_args:
             continue
         value = train_args[train_args.index(flag) + 1]

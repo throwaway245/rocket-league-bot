@@ -358,6 +358,61 @@ def minutes_plan(total, pilot, block):
     return minutes
 
 
+# Per-profile overrides for the native trainer, appended last so they win over the recipe's
+# values (the argument parser keeps the last occurrence of a flag). Measured on the 2-vCPU
+# CPU runner; see RANKED_TRAINING.md for the numbers.
+THROUGHPUT_PROFILES = {
+    'cpu-20k': ['--games', '64', '--epochs', '1', '--collection-infer-threads', '1'],
+}
+
+
+def profile_train_args(profile, continuous=True, block_minutes=30):
+    """Native flags for a throughput profile, plus a save cadence that never loses a checkpoint.
+
+    Retention: the trainer keeps --keep-checkpoints (2 by default) and the GitHub worker pushes
+    one snapshot per --backup-interval (30 min). A save cadence of half that interval guarantees
+    at least one of the kept checkpoints was still alive when a backup ran, so a hard stop can
+    never cost more than ~15 minutes of training. The first cycle is brief (a stage is only
+    `block_minutes`), so it gets a shorter interval.
+    """
+    args = list(THROUGHPUT_PROFILES.get(profile) or [])
+    if continuous:
+        first = max(2.0, min(15.0, float(block_minutes) / 2.0))
+        args += ['--ts-per-save', f'{first:g}m', '--ts-per-save-after-first', '15m']
+    return args
+
+
+def measured_sps(state, default=20000.0):
+    """The campaign's own measured overall steps/second, newest stage first."""
+    for entry in reversed(state.get('history') or []):
+        if entry.get('steps_per_second'):
+            return float(entry['steps_per_second'])
+    return default
+
+
+def save_cadence_args(state, continuous=False, block_minutes=30, backup_interval=1800,
+                      keep=2, default_sps=20000.0):
+    """Return `--ts-per-save` flags so a checkpoint always outlives the next GitHub backup.
+
+    The native trainer keeps only the newest `keep` checkpoints while the backup worker pushes one
+    snapshot per `backup_interval`, so the interval between saves must stay below
+    `backup_interval * (keep - 1)`. Timesteps are converted with the campaign's measured
+    steps/second, then capped at that budget (and at half the stage, so a stage saves at least
+    twice). A continuous campaign's first stage is only `block_minutes` long, so it gets a shorter
+    first interval instead of slipping through the regular one.
+    """
+    sps = measured_sps(state, default_sps)
+    budget_s = max(60.0, float(backup_interval) * max(1, int(keep) - 1))
+    stage_s = max(60.0, float(block_minutes) * 60.0)
+    interval_s = min(budget_s, stage_s / 2.0)
+    regular_min = max(1.0, round(interval_s / 60.0, 1))
+    flags = ['--ts-per-save', f'{regular_min:g}m']
+    if continuous:
+        first_min = max(1.0, min(regular_min, round(float(block_minutes) / 2.0, 1)))
+        flags += ['--ts-per-save-after-first', f'{first_min:g}m']
+    return flags
+
+
 def budget_for_stage(plan, stage, continuous=False, block=15):
     """Return a cycle budget; continuous runs repeat one fixed block after the parent rating."""
     if continuous:
@@ -553,10 +608,19 @@ def campaign(args):
         runtime_overrides['fuzzed_kickoffs'] = True
         state['runtime_overrides'] = runtime_overrides
         write(statefile, state)
-    if runtime_overrides.get('throughput_profile') == 'cpu-20k':
+    if runtime_overrides.get('throughput_profile'):
         # Benchmarked on the two-vCPU CPU runner: this is the fastest stable all-mode profile,
         # with best clean measurements near 19.5k overall SPS. Shared-host variance still applies.
-        runtime_train_args.extend(['--games', '64', '--epochs', '1', '--collection-infer-threads', '1'])
+        runtime_train_args.extend(profile_train_args(
+            runtime_overrides['throughput_profile'],
+            continuous=runtime_overrides.get('continuous', False),
+            block_minutes=getattr(args, 'block_minutes', 30)))
+    else:
+        # No profile: keep the recipe, but still keep the save cadence inside one backup window.
+        runtime_train_args.extend(save_cadence_args(
+            state, continuous=runtime_overrides.get('continuous', False),
+            block_minutes=getattr(args, 'block_minutes', 30),
+            backup_interval=getattr(args, 'backup_interval', 1800)))
     if out.resolve().is_relative_to(REPO.resolve()):
         state['working_directory'] = str(out.resolve().relative_to(REPO.resolve()))
     if getattr(args, 'target_ranking', None) is not None:
@@ -589,8 +653,10 @@ def campaign(args):
             print('W&B streaming requested but the `wandb` package is not installed; '
                   'run `pip install wandb`. JSON metrics are still written locally.', flush=True)
         else:
+            # --offline-fallback: a host that cannot reach W&B keeps a syncable local run rather
+            # than losing the metrics; nothing about training depends on the upload.
             streamer = subprocess.Popen([sys.executable, str(REPO / 'tools/ranked_wandb.py'), 'stream',
-                                         str(out), '--out', str(out / 'wandb-live'),
+                                         str(out), '--out', str(out / 'wandb-live'), '--offline-fallback',
                                          '--interval', str(getattr(args, 'wandb_interval', 10.0))])
     def evaluate(p, seed, multiplier=1, write_back=False):
         """Rate a policy against the pool as it is right now.
