@@ -588,6 +588,48 @@
       "opponent_pool_promoted": false,
       "opponent_pool_margin": 50.0,
       "old_versions_verified": true
+    },
+    {
+      "stage": 9,
+      "start_steps": 5104501215,
+      "steps": 5134208991,
+      "train_seconds": 1805.904474820003,
+      "wall_seconds": 2051.0083866640016,
+      "steps_per_second": 14484.473195314515,
+      "eval_rounds": 40,
+      "eval_rounds_confirm": 80,
+      "screen": {
+        "1v1": 1733.7857666015625,
+        "2v2": 1974.0465087890625,
+        "3v3": 1913.216552734375,
+        "Ranking": 1873.6829427083333
+      },
+      "confirm": {
+        "1v1": 1736.1474609375,
+        "2v2": 1978.4249267578125,
+        "3v3": 1914.1866455078125,
+        "Ranking": 1876.2530110677083
+      },
+      "promoted": false,
+      "opponent_pool_steps": [
+        2836021944,
+        2988686064,
+        3137998278,
+        3256829382,
+        3282071802,
+        3309403092,
+        3337121412,
+        3486902757,
+        3852989352,
+        4673136372
+      ],
+      "opponent_pool_sha256": "b6074672683024f04f14a0866ec38142371ce623f7cd4e4097d591c5907ba41a",
+      "opponent_pool_generation": 0,
+      "strongest_opponent_ranking": 1839.9159342447917,
+      "strongest_opponent_steps": 4673136372,
+      "opponent_pool_promoted": false,
+      "opponent_pool_margin": 50.0,
+      "old_versions_verified": true
     }
   ],
   "best": {
@@ -607,10 +649,10 @@
     "opponent_pool_sha256": "b6074672683024f04f14a0866ec38142371ce623f7cd4e4097d591c5907ba41a"
   },
   "pending": {
-    "stage": 9,
-    "start_steps": 5104501215,
+    "stage": 10,
+    "start_steps": 5134208991,
     "seconds": 0,
-    "wall_seconds": 960.0738983990013,
+    "wall_seconds": 720.0666835880002,
     "trained": false
   },
   "status": "paused",
