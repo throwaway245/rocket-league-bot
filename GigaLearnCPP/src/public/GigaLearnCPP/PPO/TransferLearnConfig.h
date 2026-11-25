@@ -48,5 +48,12 @@ namespace GGL {
 
 		// Exponent for the transfer learn KL div loss
 		float lossExponent = 1.f;
+
+		// Only when teacher and student use the identical observation and action contract.
+		bool sameObservationAndActions = false;
+		// Fraction of collection batches rolled out by the teacher, rather than the student.
+		float teacherRolloutChance = 0.f;
+		// Measure on fresh observations without updating or saving the student.
+		bool evaluationOnly = false;
 	};
 }

@@ -167,7 +167,8 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(passthrough, ['--games', '88', '--mode-balance', 'players',
                                        '--ts-per-itr', '48384', '--fixed-rollout',
                                        '--lean-metrics', '--keep-checkpoints', '2'])
-        for token in ('--github-backup', '--backup-interval', '1800', '--wandb-online',
+        self.assertNotIn('--wandb-online', cmd)
+        for token in ('--github-backup', '--backup-interval', '1800',
                       '--mask-entropy', '--fuzzed-kickoffs', '--pfsp',
                       '--norm-advantages', 'mode', '--epochs', '2',
                       '--critic-lr', '0.0002', '--tactical-state-prob', '0.22',
@@ -219,8 +220,10 @@ class RestoreTests(unittest.TestCase):
 
     def test_reward_specs_are_validated_against_the_bots_own_tables(self):
         train_ranked.validate_rewards('v6')
+        train_ranked.validate_rewards('v7')
+        train_ranked.validate_rewards('v8')
         train_ranked.validate_rewards('Goal=750,Save=30')
-        for bad in ('v7', 'Goal=750,NotAReward=2', 'Goal=750,garbage'):
+        for bad in ('v999', 'Goal=750,NotAReward=2', 'Goal=750,garbage'):
             with self.assertRaises(ValueError):
                 train_ranked.validate_rewards(bad)
 
@@ -228,6 +231,10 @@ class RestoreTests(unittest.TestCase):
         cmd = self.build(wandb_online=False)
         self.assertIn('--github-backup', cmd)
         self.assertNotIn('--wandb-online', cmd)
+
+    def test_explicit_wandb_enable_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'temporarily disabled'):
+            self.build(wandb_online=True)
 
 
 

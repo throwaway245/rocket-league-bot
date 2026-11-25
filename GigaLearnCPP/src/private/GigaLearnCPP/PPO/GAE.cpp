@@ -8,6 +8,21 @@ void GGL::GAE::Compute(
 
 	bool hasTruncValPreds = truncValPreds.defined();
 
+	// The raw-pointer loop below expects flat CPU buffers and complete trajectories.
+	// Reject malformed input instead of silently using a zero bootstrap or reading past a tensor.
+	TORCH_CHECK(rews.device().is_cpu() && terminals.device().is_cpu() && valPreds.device().is_cpu(),
+		"GAE expects CPU tensors");
+	TORCH_CHECK(rews.dim() == 1 && terminals.dim() == 1 && valPreds.dim() == 1 &&
+		rews.numel() > 0 && terminals.numel() == rews.numel() && valPreds.numel() == rews.numel(),
+		"GAE expects equally sized nonempty 1D trajectories");
+	TORCH_CHECK(rews.scalar_type() == torch::kFloat32 && valPreds.scalar_type() == torch::kFloat32 &&
+		terminals.scalar_type() == torch::kInt8, "GAE expects float32 rewards/values and int8 terminals");
+	TORCH_CHECK(!hasTruncValPreds || (truncValPreds.device().is_cpu() && truncValPreds.dim() == 1 &&
+		truncValPreds.scalar_type() == torch::kFloat32), "GAE expects 1D CPU float32 truncation values");
+	TORCH_CHECK(terminals[-1].item<int8_t>() == RLGC::TerminalType::NORMAL ||
+		terminals[-1].item<int8_t>() == RLGC::TerminalType::TRUNCATED,
+		"GAE trajectory must end in a terminal or truncation");
+
 	float prevLambda = 0;
 	int numReturns = rews.size(0);
 	outAdvantages = torch::zeros(numReturns);
@@ -61,6 +76,8 @@ void GGL::GAE::Compute(
 		} else {
 			curReward = _rews[step];
 			totalRew += abs(curReward);
+			// Without standardization no clipping occurs; report zero clipped portion.
+			totalClippedRew += abs(curReward);
 		}
 
 		float nextValPred;

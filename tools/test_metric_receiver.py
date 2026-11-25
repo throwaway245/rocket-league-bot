@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'GigaLearnCPP/python_scripts'))
@@ -12,6 +13,19 @@ import metric_receiver  # noqa: E402
 
 
 class MetricReceiverThroughputTests(unittest.TestCase):
+    def test_training_never_initializes_wandb_even_if_environment_enables_it(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(metric_receiver.os.environ, {'GGL_METRICS_DIR': tmp, 'GGL_METRICS_EVERY': '1', 'GGL_WANDB': '1'}), \
+             mock.patch.object(metric_receiver, '_init_wandb', side_effect=AssertionError('W&B must stay disabled')):
+            run_id = metric_receiver.init(sys.executable, 'proj', 'grp', 'run', None)
+            try:
+                self.assertIsNone(metric_receiver.wandb_run)
+                metric_receiver.add_metrics({'Total Timesteps': 123, 'loss': 0.5})
+            finally:
+                metric_receiver.finish()
+            rows = [json.loads(line) for line in (Path(tmp) / f'{run_id}.jsonl').read_text().splitlines()]
+            self.assertEqual(rows[0]['Total Timesteps'], 123)
+
     def test_sparse_rows_average_skipped_iterations_and_keep_cumulative_counters(self):
         with tempfile.TemporaryDirectory() as tmp:
             old_dir = metric_receiver.os.environ.get('GGL_METRICS_DIR')

@@ -257,9 +257,15 @@ torch::Tensor ComputeEntropy(torch::Tensor probs, torch::Tensor actionMasks, boo
 		// Account for action masking in entropy
 		// We will effectively narrow the entropy to the scope of the valid actions
 		// This way states with more masked actions don't just have inherently lower entropy
-		entropy /= actionMasks.to(torch::kFloat32).sum(-1).log();
-	} else {
+		auto validCount = actionMasks.to(torch::kFloat32).sum(-1);
+		// A forced action has zero entropy. Avoid dividing by log(1), including
+		// in the unused branch of where (which must remain finite for autograd).
+		auto denom = validCount.clamp_min(2).log();
+		entropy = torch::where(validCount > 1, entropy / denom, torch::zeros_like(entropy));
+	} else if (actionMasks.size(-1) > 1) {
 		entropy /= logf(actionMasks.size(-1));
+	} else {
+		entropy = torch::zeros_like(entropy);
 	}
 
 	return entropy.mean();
@@ -514,7 +520,9 @@ void GGL::PPOLearner::AccumulateBatchGrads(const ExperienceTensors& batch, bool 
 		// Size of the entropy term relative to the policy loss, for the whole batch
 		float batchEntropy = (float)(batchEntropySum / batchSize);
 		float batchPolicyLoss = (float)(batchPolicyLossSum / batchSize);
-		stats.relEntropyLoss += (batchEntropy * config.entropyScale) / batchPolicyLoss;
+		// A centered policy loss can be exactly zero; keep telemetry finite.
+		if (std::abs(batchPolicyLoss) > 1e-8f)
+			stats.relEntropyLoss += (batchEntropy * config.entropyScale) / batchPolicyLoss;
 		stats.lastBatchKL = (float)(batchKLSum / batchSize);
 	}
 }
@@ -638,7 +646,8 @@ void GGL::PPOLearner::TransferLearn(
 		// Non-summative KL div	loss
 		torch::Tensor transferLearnLoss;
 		if (tlConfig.useKLDiv) {
-			transferLearnLoss = (oldProbs * torch::log(oldProbs / newProbs)).abs();
+			// Masked actions have zero probability. Clamp only inside the logarithm.
+			transferLearnLoss = oldProbs * (oldProbs.clamp_min(1e-12).log() - newProbs.clamp_min(1e-12).log());
 		} else {
 			transferLearnLoss = (oldProbs - newProbs).abs();
 		}
@@ -651,10 +660,12 @@ void GGL::PPOLearner::TransferLearn(
 			torch::Tensor matchingActionsMask = (newProbs.detach().argmax(-1) == oldProbs.detach().argmax(-1));
 			report["Transfer Learn Accuracy"] = matchingActionsMask.to(torch::kFloat).mean().cpu().item<float>();
 			report["Transfer Learn Loss"] = transferLearnLoss.detach().cpu().item<float>();
+			report["Transfer KL"] = (oldProbs * (oldProbs.clamp_min(1e-12).log() - newProbs.detach().clamp_min(1e-12).log())).sum(-1).mean().cpu().item<float>();
 
 			report["Policy Entropy"] = ComputeEntropy(newProbs, newActionMasks, config.maskEntropy).detach().cpu().item<float>();
 		}
 
+		if (tlConfig.evaluationOnly) break;
 		transferLearnLoss.backward();
 
 		models.StepOptims();

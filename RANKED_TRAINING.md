@@ -1,5 +1,12 @@
 # Ranked Multi-Mode Training, W&B Telemetry, and Recovery
 
+> **Temporary training policy:** W&B logging is disabled for all training, both online and
+> offline. Native metrics remain available as local JSONL with `Total Timesteps`. The
+> `--wandb`, `--wandb-online` and `--wandb-offline` training flags are rejected; setting
+> `GGL_WANDB=1` cannot enable the native receiver. Manual post-training export/sync is separate
+> and remains available. Earlier W&B instructions below describe the retained tooling, not an
+> active training integration.
+
 ## Resuming and pausing
 
 `training-backup/` holds the single canonical paused snapshot (verified by `training-backup/manifest.json`) and is never trained in directly.
@@ -8,7 +15,7 @@
 # Restore into results/ without launching training:
 python3 tools/resume_training.py --restore-only
 
-# Verify and resume the finite training schedule (starts the 30m GitHub backup + direct W&B stream):
+# Verify and resume the finite training schedule (starts the 30m GitHub backup; metrics stay local):
 python3 tools/resume_training.py
 
 # Resume one fixed 15-minute train/evaluate cycle and repeat it indefinitely with a rolling pool of 10 old policies:
@@ -32,7 +39,7 @@ python3 tools/train_ranked.py \
   --out results/weights1700/campaign \
   --minutes 720 --pilot-minutes 15 --block-minutes 30 --rounds 40 \
   --target-ranking 1700 \
-  --github-backup --backup-interval 1800 --wandb-online --wandb-interval 10
+  --github-backup --backup-interval 1800
 ```
 
 To continue the recipe from the newest canonical checkpoint with a rolling opponent pool that grows from the ten historical policies towards fifteen, in endless train/evaluate cycles:
@@ -51,7 +58,7 @@ python3 tools/train_ranked.py \
   --train-vs-old 0.5 --ts-per-version 20m --max-versions 14 \
   --skill-minutes 25.0 --ts-per-save 10m \
   --mask-entropy --fuzzed-kickoffs --rewards v5 \
-  --github-backup --backup-interval 1800 --wandb-online --wandb-interval 10
+  --github-backup --backup-interval 1800
 ```
 
 The seed pool is the `policy_versions` folder next to `--base`; the campaign copies it into its own
@@ -292,14 +299,14 @@ The cadence is enforced in one place, so one push per 30 minutes is a hard ceili
 
 ## Weights & Biases reporting
 
-Metrics leave the training host over exactly one connection: HTTPS to W&B. Telemetry never touches GitHub.
+Training metrics are written to local JSONL only. Manual post-training export is described below; telemetry never touches GitHub.
 
-- **Direct streaming (`--wandb-online`, the default for `tools/resume_training.py`):**
+- **Direct streaming (retained for manual use only; disabled during training):**
   `tools/ranked_wandb.py stream` tails the campaign's own durable files (`state.json`, `metrics/*.jsonl`,
   `eval/*.json`) and logs every training row, stage rating and held-out audit sample straight into a single
   resumable online W&B run (`step_metric='Total Timesteps'`). It holds no trainer lock, never rewrites campaign
   state, and keeps its delivery cursor locally in `<out>/.relay_cursor.json`, so a restart never logs a step twice.
-- **Offline export (`--wandb-offline`, or `tools/ranked_wandb.py export`):** writes one closed offline run that can
+- **Post-training offline export (`tools/ranked_wandb.py export`):** writes one closed offline run that can
   be synced later. No credentials and no network are needed.
 - **Nothing goes through GitHub.** There is no `wandb-live.yml` workflow, no telemetry issue or comment feed, no
   `gh api` call, no sealed-key handshake and no telemetry commit. The earlier GitHub relay existed only to bridge a
@@ -364,3 +371,28 @@ build/GigaLearnMultiModeTests
 python3 tools/test_native_rollout.py
 python3 tools/test_native_render.py
 ```
+
+### v7 reward experiment
+
+The v7 preset removes unconditional `Air` and `Bump` shaping, and phases down
+`NearestVelocityToBall` (0.25 to 0.15), nondirectional `TouchAccel` (10 to 4),
+`TeamSpacing` (0.75 to 0.35), and `DoubleCommit` (1 to 0.6). These terms can
+reward ball chasing, airborne time or hard but misdirected touches, or duplicate
+other positioning and demolition signals. Goal, goal-directed touches, saves,
+shots, and mode-specific cover remain unchanged. This is an experimental
+hypothesis, not a proven improvement: compare sampled reward contributions and
+held-out performance against the protected v6 checkpoint. Changes in episode
+length and zero-sum cancellation mean per-step reward shares alone do not prove
+which incentives dominate.
+
+### v8 mechanics experiment
+
+v8 retains v7's reduced shaping, and adds two small, bounded, zero-sum event
+bonuses: `ProductiveAerialTouch=2` rewards an airborne player for a high touch
+only when the existing directional impulse is positive; `ProductiveWavedash=0.5`
+uses the CommonRewards flip-landing condition but pays only for a speed gain
+above 80 uu/s. The former adapts the height-weighted `TouchBallReward` from
+RLGym-Sim's Python `player_ball_rewards.py`; neither pays for airborne time
+alone. These are incentives, not proof of learned aerials or wavedashes, and can
+still be gamed. Inspect per-term metrics and held-out matches before concluding
+that they improve play. Earlier v7/v6 presets leave both new terms at zero.

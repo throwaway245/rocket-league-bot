@@ -105,8 +105,10 @@ def native_passthrough(train_args):
 def build_resume_command(state, work, without_services=False, backup_interval=1800,
                          reward_metrics=False, player_metrics=False, throughput_profile=None,
                          continuous=False, evolving_opponents=False, opponent_pool_size=None,
-                         promotion_margin=None, wandb_online=True, wandb_interval=10.0,
+                         promotion_margin=None, wandb_online=False, wandb_interval=10.0,
                          runtime_rewards=None):
+    if wandb_online:
+        raise ValueError('W&B logging during training is temporarily disabled')
     config = state['config']
     cmd = [sys.executable, str(ROOT / 'tools/train_ranked.py'), '--base', config['base'],
            '--out', str(work.relative_to(ROOT)), '--minutes', str(sum(config['minutes'])),
@@ -150,10 +152,8 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
         cmd += ['--promotion-margin', str(promotion_margin if promotion_margin is not None
                                            else runtime.get('promotion_margin', 50.0))]
     if not without_services:
-        # 30-minute GitHub checkpoint backups; metrics go straight to W&B, never through GitHub.
+        # Checkpoint backup remains optional; training metrics stay in local JSONL.
         cmd += ['--github-backup', '--backup-interval', str(backup_interval)]
-        if wandb_online:
-            cmd += ['--wandb-online', '--wandb-interval', str(wandb_interval)]
     if native_flags:
         # Native passthrough last: train_ranked forwards everything after `--` to the trainer, so
         # the preset travels unchanged instead of being rejected as an unknown driver flag.
@@ -167,7 +167,7 @@ def main():
     parser.add_argument('--without-services', action='store_true',
                         help='Run trainer only, without the 30-minute GitHub backup or W&B streaming')
     parser.add_argument('--no-wandb', action='store_true',
-                        help='Keep the GitHub checkpoint backup but do not stream metrics to W&B')
+                        help='Compatibility flag: W&B training logging is already disabled')
     parser.add_argument('--reward-metrics', action='store_true',
                         help='Enable and persist sampled reward-component telemetry on the resumed campaign')
     parser.add_argument('--runtime-rewards',
@@ -206,7 +206,7 @@ def main():
                                continuous=args.continuous, evolving_opponents=args.evolving_opponents,
                                opponent_pool_size=args.opponent_pool_size,
                                promotion_margin=args.promotion_margin,
-                               wandb_online=not args.no_wandb, wandb_interval=args.wandb_interval,
+                               wandb_online=False, wandb_interval=args.wandb_interval,
                                runtime_rewards=args.runtime_rewards)
     print('Resuming only because this script was explicitly invoked.', flush=True)
     subprocess.run(cmd, cwd=ROOT, check=True)

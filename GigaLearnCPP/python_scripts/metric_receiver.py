@@ -10,14 +10,14 @@ What this version does:
 	This needs no account, no network and no extra Python packages.
 	With GGL_METRICS_EVERY=N, numeric diagnostics are averaged over each N-iteration window;
 	timestep/iteration counters retain their latest cumulative values, and rating events flush immediately.
-  * ADDITIONALLY logs to Weights & Biases when the environment variable GGL_WANDB=1 is set
-	(needs `pip install wandb`, and the API key in WANDB_API_KEY or a previous `wandb login`).
+  * W&B logging during training is temporarily disabled, even if GGL_WANDB=1.
+	Existing local JSONL output is unchanged.
 
 Environment variables (the bot executable sets some of them from its command-line options):
   GGL_METRICS_DIR     Folder for the .jsonl files (default: "metrics", relative to the working directory)
   GGL_METRICS_EVERY   Average N iterations per JSONL row (default: 1); rating events flush immediately.
   GGL_WANDB_EVERY     Average N iterations per W&B log record (default: 10); rating events flush immediately
-  GGL_WANDB           Set to 1 to also log to wandb
+  GGL_WANDB           Ignored while training W&B logging is disabled
   WANDB_ENTITY        wandb user or team (default: the default entity of the API key)
   GGL_RUN_CONFIG      JSON object with the settings of the run, shown as the run config in wandb
   GGL_NEW_RUN         Set to 1 to start a new run even if the checkpoint belongs to an earlier run
@@ -219,7 +219,7 @@ def init(py_exec_path, project, group, name, id = None):
 		run_id = None # This run branches off the checkpoint of another run, so it doesn't continue that run's metrics
 
 	if _env_flag("GGL_WANDB"):
-		run_id = _init_wandb(py_exec_path, project, group, name, run_id)
+		print("W&B logging during training is disabled; writing local JSONL only.", flush = True)
 
 	if run_id is None:
 		# Not resuming and no wandb ID, so make our own

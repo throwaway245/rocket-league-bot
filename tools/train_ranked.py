@@ -581,6 +581,11 @@ def config_drift(requested, stored, out):
 
 
 def campaign(args):
+    # Applies to API callers as well as the CLI; no W&B run or streamer during training.
+    if getattr(args, 'wandb_online', False) or getattr(args, 'wandb_offline', False):
+        raise ValueError('W&B logging during training is temporarily disabled; local JSONL metrics remain enabled')
+    if '--wandb' in getattr(args, 'native_args', []):
+        raise ValueError('W&B logging during training is temporarily disabled')
     out, learner = args.out, args.out / 'learner'
     statefile = out / 'state.json'
     base = checkpoint(args.base) if not statefile.exists() else Path(args.base)
@@ -1027,10 +1032,8 @@ def build_arg_parser():
     parser.add_argument('--rounds', type=int, default=40,
                         help='Rating round budget per screen; the actual count follows the opponent '
                              'pool size (a multiple of twice the pool size, never below the budget)')
-    parser.add_argument('--wandb-offline', action='store_true', help='Write a syncable W&B run in --out; no credential or network needed')
-    parser.add_argument('--wandb-online', action='store_true',
-                        help='Stream metrics straight to online W&B in a separate process (direct HTTPS to '
-                             'api.wandb.ai; never through GitHub). Needs WANDB_API_KEY or `wandb login`')
+    parser.add_argument('--wandb-offline', action='store_true', help='Unavailable: W&B logging during training is temporarily disabled')
+    parser.add_argument('--wandb-online', action='store_true', help='Unavailable: W&B logging during training is temporarily disabled')
     parser.add_argument('--wandb-interval', type=float, default=10.0,
                         help='Seconds between W&B stream polls (default: 10)')
     parser.add_argument('--github-backup', action='store_true',
@@ -1097,6 +1100,8 @@ def main():
         argv = argv[:argv.index('--')]
     args = parser.parse_args(argv)
     args.native_args = extra
+    if args.wandb_online or args.wandb_offline or '--wandb' in extra:
+        parser.error('W&B logging during training is temporarily disabled; local JSONL metrics remain enabled')
     if args.backup_interval < 60:
         parser.error('--backup-interval must be at least 60 seconds')
     if args.target_ranking is not None and not (0 < args.target_ranking < 10000):
