@@ -16,6 +16,14 @@ import verify_frozen_versions as frozen_report
 
 
 class RankingTests(unittest.TestCase):
+    def test_training_rejects_wandb_modes_before_campaign_side_effects(self):
+        for flag in ('wandb_online', 'wandb_offline'):
+            args = argparse.Namespace(**{flag: True})
+            with self.assertRaisesRegex(ValueError, 'temporarily disabled'):
+                ranked.campaign(args)
+        with self.assertRaisesRegex(ValueError, 'temporarily disabled'):
+            ranked.campaign(argparse.Namespace(native_args=['--wandb']))
+
     def test_weight_only_execution_guard(self):
         ranked.validate_execution({'settings': {'deterministic': False, 'policy_temperature': 1.0,
                                                 'fuzzed_kickoffs': True}})

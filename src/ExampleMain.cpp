@@ -287,6 +287,33 @@ public:
 	}
 };
 
+// RLGym's aerial-weighted TouchBall rewards height on any touch. Here the bonus is
+// restricted to airborne players and positive directional impulses, so hovering or
+// knocking the ball toward our own goal is not rewarded. DirectionalTouch already
+// supplies the base touch signal; this adds only a small bounded mechanics bonus.
+class ProductiveAerialTouchReward : public Reward {
+	DirectionalTouchReward directional;
+public:
+	virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+		if (player.isOnGround || !player.ballTouchedStep || state.ball.pos.z <= 300.f)
+			return 0.f;
+		float quality = std::max(0.f, directional.GetReward(player, state, isFinal));
+		return std::min(1.f, quality) * std::clamp((state.ball.pos.z - 300.f) / 700.f, 0.f, 1.f);
+	}
+};
+
+// CommonRewards' WavedashReward detects a flip landing. Only pay its useful speed
+// gain, not the bare event, to make stationary flip farming less attractive.
+class ProductiveWavedashReward : public Reward {
+public:
+	virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+		if (!player.prev || !player.isOnGround || player.prev->isOnGround || !player.prev->isFlipping)
+			return 0.f;
+		float gain = player.vel.Length() - player.prev->vel.Length();
+		return std::clamp((gain - 80.f) / 700.f, 0.f, 1.f);
+	}
+};
+
 // Zero-sum bonus on goals proportional to scoring shot speed (fast shots beat defenders reliably).
 class GoalSpeedReward : public Reward {
 public:
@@ -684,6 +711,8 @@ static const std::vector<RewardDef> REWARD_DEFS = {
 	// Not used by default
 	{ "TouchAccel", 15.f, []() -> Reward* { return new TouchAccelReward(); }, "speeding the ball up with a touch (up to 110 km/h)" },
 	{ "TouchBall", 0, []() -> Reward* { return new TouchBallReward(); }, "every step with a ball touch" },
+	{ "ProductiveAerialTouch", 0, []() -> Reward* { return new ZeroSumReward(new ProductiveAerialTouchReward(), 0.25f); }, "airborne goal-directed touches, scaled by height and quality" },
+	{ "ProductiveWavedash", 0, []() -> Reward* { return new ZeroSumReward(new ProductiveWavedashReward(), 0.25f); }, "flip landings with positive speed gain" },
 	{ "Speed", 0, []() -> Reward* { return new SpeedReward(); }, "own speed" },
 	{ "KickoffProximity", 0, []() -> Reward* { return new KickoffProximityReward(); }, "kickoffs: the team's nearest player being closer to the ball than the opponents' while it still lies on the centre spot (zero-sum)" },
 	{ "NearestVelocityToBall", 0, []() -> Reward* { return new NearestVelocityToBallReward(); }, "speed towards the ball, only for the player of each team that is nearest to the ball (in 1v1 the same as VelocityPlayerToBall)" },
@@ -757,6 +786,20 @@ static const std::map<std::string, std::string> REWARD_PRESETS = {
 	        "KickoffProximity=0,PickupBoost=0,Demo=0,Goal=750,GoalSpeed=110,ScorerAssist=75,Save=30,Shot=20,"
 	        "DirectionalTouch=16,ObjectiveBallVel=10,KickoffSpeed=6,TeamPressure=2,SoloDiscipline=0.7,"
 	        "DefensiveCover=0.6,DoubleCommit=1,PickupBoostZS=4,SaveBoost=0.05,DemoZS=15,Bump=3" },
+	// v7: phase down redundant, potentially exploitable dense shaping; retain outcome, directional
+	// touch and mode-aware defensive incentives. This is a hypothesis, not a measured improvement.
+	{ "v7", "Air=0,FaceBall=0,VelocityPlayerToBall=0,NearestVelocityToBall=0.15,TouchBall=0,Speed=0,"
+	        "TeamVelocityToBall=0,StrongTouch=0,TouchAccel=4,VelocityBallToGoal=0,BehindBall=0,TeamSpacing=0.35,"
+	        "KickoffProximity=0,PickupBoost=0,Demo=0,Goal=750,GoalSpeed=110,ScorerAssist=75,Save=30,Shot=20,"
+	        "DirectionalTouch=16,ObjectiveBallVel=10,KickoffSpeed=6,TeamPressure=2,SoloDiscipline=0.7,"
+	        "DefensiveCover=0.6,DoubleCommit=0.6,PickupBoostZS=4,SaveBoost=0.05,DemoZS=15,Bump=0" },
+	// v8 adds small, event-gated mechanics signals to v7; no reward for air time alone.
+	{ "v8", "Air=0,FaceBall=0,VelocityPlayerToBall=0,NearestVelocityToBall=0.15,TouchBall=0,Speed=0,"
+	        "ProductiveAerialTouch=2,ProductiveWavedash=0.5,TeamVelocityToBall=0,StrongTouch=0,TouchAccel=4,"
+	        "VelocityBallToGoal=0,BehindBall=0,TeamSpacing=0.35,KickoffProximity=0,PickupBoost=0,Demo=0,"
+	        "Goal=750,GoalSpeed=110,ScorerAssist=75,Save=30,Shot=20,DirectionalTouch=16,ObjectiveBallVel=10,"
+	        "KickoffSpeed=6,TeamPressure=2,SoloDiscipline=0.7,DefensiveCover=0.6,DoubleCommit=0.6,"
+	        "PickupBoostZS=4,SaveBoost=0.05,DemoZS=15,Bump=0" },
 };
 
 // Weights that differ from the defaults (--rewards)
@@ -1058,6 +1101,8 @@ static const std::vector<BotSpec> BOT_PRESETS = {
 	{ "s-1v1",   "1v1 only: \"s\" without the parts that 1v1 does not use, faster. Continues checkpoints of \"s\"", true, { 128, 128 }, { 256, 256 }, { 256, 256 }, { 256, 256 }, true, "s" },
 	{ "m",       "1v1/2v2/3v3, medium",                                        true,  { 256, 256 }, { 512, 512, 512 },     { 512, 512 },      { 512, 512 } },
 	{ "l",       "1v1/2v2/3v3, large (the size this project trains)",          true,  { 256, 256 }, { 1024, 1024, 1024 },  { 512, 512 },      { 512, 512 } },
+	// Frozen checkpoint ABI: do not change foundation-v1; add a new name for future designs.
+	{ "foundation-v1", "fixed large multimode distillation foundation",          true,  { 256, 256 }, { 1024, 1024, 1024 },  { 512, 512 },      { 512, 512 } },
 	{ "xl",      "1v1/2v2/3v3, extra large (needs a GPU)",                     true,  { 512, 512 }, { 2048, 2048, 1024 },  { 1024, 1024 },    { 1024, 1024 } },
 };
 
@@ -1301,16 +1346,22 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "random-car-speed", NULL, "Random states: the cars start with a random speed and spin, instead of at rest" },
 	{ "random-cars-in-air", NULL, "Random states: half of the cars start in the air with a random orientation, instead of all on the ground" },
 	{ "no-touch-timeout", "10", "Seconds without a ball touch before an episode is cut off, 0 = never" },
-	{ "rewards", "", "Reward weights that differ from the defaults, e.g. \"VelocityBallToGoal=6,Air=0\" (0 = off), see the list below — or a named preset: v3 (the 66-cycle campaign), v4 (dense RLGym-style shaping restored), v5 (v4 without FaceBall), v6 (v5 rebalanced from its own measured per-term payouts)" },
+	{ "rewards", "", "Reward weights that differ from the defaults, e.g. \"VelocityBallToGoal=6,Air=0\" (0 = off), see the list below — or a named preset: v3 (the 66-cycle campaign), v4 (dense RLGym-style shaping restored), v5 (v4 without FaceBall), v6 (measured rebalance), v7 (phase down redundant shaping), v8 (productive aerial touches and wavedashes)" },
 	{ "seed", "123", "Random seed of the training or the evaluation, -1 = use the current time" },
 	{ "ts-per-save", "1000000", "Timesteps between checkpoints" },
 	{ "ts-per-save-after-first", "0", "Timesteps between checkpoints once the first one of this run exists (0 = use --ts-per-save)" },
 	{ "keep-checkpoints", "8", "Number of checkpoints kept before the oldest are deleted, -1 = keep all" },
 	{ "max-timesteps", "0", "Save and stop once this many total timesteps are reached, 0 = no limit" },
 	{ "max-minutes", "0", "Save and stop after this many minutes, 0 = no limit" },
+	{ "distill-teacher", "", "Distill a compatible multimode teacher checkpoint into --model foundation-v1" },
+	{ "distill-batch", "2048", "Distillation observations per iteration" },
+	{ "distill-epochs", "3", "Distillation optimizer steps per batch" },
+	{ "distill-teacher-rollout", "0.5", "Fraction of rollout batches driven by teacher, 0 to 1" },
+	{ "distill-eval", NULL, "Evaluate transfer on a fresh rollout without updating or saving" },
+	{ "distill-new-teacher", NULL, "Explicitly permit changing the teacher of an existing student" },
 	{ "run-name", "gigalearncpp-run", "Run name for the metrics receiver" },
 	{ "no-metrics", NULL, "Don't send metrics to the Python metrics receiver" },
-	{ "wandb", NULL, "Also log the metrics to Weights & Biases (needs the API key in WANDB_API_KEY, or a previous `wandb login`)" },
+	{ "wandb", NULL, "Unavailable: W&B logging during training is temporarily disabled" },
 	{ "wandb-project", "", "W&B project (default: $WANDB_PROJECT, or \"gigalearncpp\")" },
 	{ "wandb-entity", "", "W&B user or team (default: $WANDB_ENTITY, or the default of the API key)" },
 	{ "wandb-group", "", "W&B group of the run (default: $WANDB_RUN_GROUP, or \"unnamed-runs\")" },
@@ -1977,11 +2028,41 @@ int RunRating(Learner* learner, const Options& opt, int numRounds) {
 }
 
 int RunTraining(const Options& opt, std::filesystem::path exeDir) {
+	if (opt.Has("wandb"))
+		RG_ERR_CLOSE("W&B logging during training is temporarily disabled; local JSONL remains available");
 	InitRocketSim(opt, exeDir);
 	AddToPythonPath(exeDir);
 
 	// Which bot. If training continues from a checkpoint, it is the one that the checkpoint was made with
 	SelectBot(opt, FindNewestCheckpoint(opt.Str("checkpoints")));
+	std::filesystem::path teacherPath;
+	if (!opt.Str("distill-teacher").empty()) {
+		teacherPath = std::filesystem::weakly_canonical(ResolveCheckpoint(opt.Str("distill-teacher")));
+		auto outputPath = std::filesystem::weakly_canonical(opt.Str("checkpoints"));
+		auto relativeTeacher = teacherPath.lexically_relative(outputPath);
+		if (relativeTeacher.empty() || *relativeTeacher.begin() != "..")
+			RG_ERR_CLOSE("Teacher cannot be inside the output checkpoint directory");
+		auto previous = FindNewestCheckpoint(opt.Str("checkpoints"));
+		if (!previous.empty()) {
+			auto studentInfo = ReadCheckpointInfo(previous);
+			if ((!studentInfo.count("distill_teacher") || studentInfo["distill_teacher"] != teacherPath.string()) && !opt.Has("distill-new-teacher"))
+				RG_ERR_CLOSE("Existing student is not pinned to this teacher; use --distill-new-teacher to explicitly change it");
+		}
+		auto info = ReadCheckpointInfo(teacherPath);
+		if (g_Bot.name != "foundation-v1" || !info.count("model") || !info.count("obs") || info["obs"] != "MultiModeObs")
+			RG_ERR_CLOSE("Distillation requires foundation-v1 and a multimode teacher with model metadata");
+		auto teacherModel = FindBotPreset(info["model"]);
+		if (!teacherModel.multiMode || !teacherModel.useSlotEncoder || !teacherModel.only1v1Of.empty())
+			RG_ERR_CLOSE("Teacher must use the full multimode pooled-slot observation and action contract");
+		if (std::filesystem::weakly_canonical(opt.Str("checkpoints")).string().find(std::filesystem::weakly_canonical("training-backup").string()) == 0)
+			RG_ERR_CLOSE("Distillation output must be outside training-backup");
+		if (opt.Int("distill-batch") <= 0 || opt.Int("distill-epochs") <= 0 || opt.Num("distill-teacher-rollout") < 0 || opt.Num("distill-teacher-rollout") > 1)
+			RG_ERR_CLOSE("Invalid distillation batch, epochs or teacher rollout probability");
+		if (opt.Has("distill-eval") && FindNewestCheckpoint(opt.Str("checkpoints")).empty())
+			RG_ERR_CLOSE("Distillation evaluation needs a saved student checkpoint");
+	} else if (opt.Has("distill-eval")) {
+		RG_ERR_CLOSE("--distill-eval needs --distill-teacher");
+	}
 	std::string balance = opt.Str("mode-balance");
 	if (balance != "games" && balance != "players")
 		RG_ERR_CLOSE("--mode-balance must be games or players");
@@ -2009,6 +2090,7 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 	cfg.checkpointInfo["modes"] = ModeNames(g_TrainTeamSizes);
 	cfg.checkpointInfo["obs"] = g_Bot.multiMode ? "MultiModeObs" : "AdvancedObs";
 	cfg.checkpointInfo["rewards"] = GetRewardSummary();
+	if (!teacherPath.empty()) cfg.checkpointInfo["distill_teacher"] = teacherPath.string();
 
 	std::string device = opt.Str("device");
 	if (device == "auto") {
@@ -2118,7 +2200,10 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 	cfg.trainAgainstOldVersions = cfg.trainAgainstOldChance > 0;
 	cfg.pfspOpponents = opt.Has("pfsp");
 
-	cfg.mirrorX = ResolveMirrorX(opt, "mirror", FindNewestCheckpoint(opt.Str("checkpoints")));
+	auto mirrorCheckpoint = FindNewestCheckpoint(opt.Str("checkpoints"));
+	cfg.mirrorX = ResolveMirrorX(opt, "mirror", mirrorCheckpoint.empty() ? teacherPath : mirrorCheckpoint);
+	if (!teacherPath.empty() && cfg.mirrorX != ReadMirrorX(teacherPath))
+		RG_ERR_CLOSE("Distillation requires student and teacher to use the same mirrored view");
 	cfg.mirrorXFromCheckpoint = false; // Already looked up, and the option can change it
 	if (cfg.mirrorX && !g_Bot.multiMode)
 		RG_ERR_CLOSE("Option --mirror: the mirrored view needs a multi-mode model (--model s, m, l or xl)");
@@ -2143,8 +2228,8 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 
 	// Settings of the Python metrics receiver (python_scripts/metric_receiver.py), it reads them from the environment
 	if (cfg.sendMetrics && !cfg.renderMode) {
-		if (opt.Has("wandb"))
-			SetEnv("GGL_WANDB", "1");
+		// Environment variables cannot enable W&B in the metrics receiver during training.
+		SetEnv("GGL_WANDB", "0");
 		if (!opt.Str("wandb-entity").empty())
 			SetEnv("WANDB_ENTITY", opt.Str("wandb-entity"));
 		if (opt.Has("new-run"))
@@ -2297,8 +2382,32 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 	uint64_t startTimesteps = learner->totalTimesteps;
 	g_TrainStartTime = std::chrono::steady_clock::now();
 
-	// Start learning!
-	learner->Start();
+	// Distillation keeps teacher and student on exactly the same observation and action ABI.
+	if (!teacherPath.empty()) {
+		TransferLearnConfig transfer = {};
+		BotSpec student = g_Bot;
+		g_Bot = FindBotPreset(ReadCheckpointInfo(teacherPath).at("model"));
+		PPOLearnerConfig teacherConfig = {};
+		SetModelConfig(teacherConfig);
+		g_Bot = student;
+		transfer.oldPolicyConfig = teacherConfig.policy;
+		transfer.oldSharedHeadConfig = teacherConfig.sharedHead;
+		transfer.oldModelsPath = teacherPath;
+		transfer.makeOldObsFn = []() -> ObsBuilder* { return new MultiModeObs(false); };
+		transfer.makeOldActFn = []() -> ActionParser* { return new DefaultAction(); };
+		transfer.sameObservationAndActions = true;
+		transfer.teacherRolloutChance = (float)opt.Num("distill-teacher-rollout");
+		transfer.batchSize = (int)opt.Int("distill-batch");
+		transfer.epochs = (int)opt.Int("distill-epochs");
+		transfer.lr = (float)opt.Num("lr");
+		transfer.useKLDiv = true;
+		transfer.lossScale = 90.f; // KL was averaged over 90 actions
+		transfer.evaluationOnly = opt.Has("distill-eval");
+		RG_LOG("Distilling teacher " << teacherPath << " into fixed foundation-v1; teacher rollout " << transfer.teacherRolloutChance);
+		learner->StartTransferLearn(transfer);
+	} else {
+		learner->Start();
+	}
 
 	// Upload the remaining metrics and close the run (wandb would otherwise show it as crashed)
 	if (learner->metricSender)

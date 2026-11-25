@@ -453,7 +453,7 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 
 	// Reset all obs builders initially
 	for (int i = 0; i < envSet->arenas.size(); i++)
-		oldObsBuilders[i]->Reset(envSet->state.gameStates[0]);
+		oldObsBuilders[i]->Reset(envSet->state.gameStates[i]);
 
 	std::vector<ActionParser*> oldActionParsers = {};
 	for (int i = 0; i < envSet->arenas.size(); i++)
@@ -490,8 +490,12 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 		std::thread keyPressThread;
 		StartQuitKeyThread(saveQueued, keyPressThread);
 
+		std::mt19937 transferRng(static_cast<uint32_t>(config.randomSeed));
 		while (true) {
 			Report report = {};
+			const bool teacherRollout = tlConfig.sameObservationAndActions &&
+				std::uniform_real_distribution<float>(0.f, 1.f)(transferRng) < tlConfig.teacherRolloutChance;
+			report["Transfer Teacher Rollout"] = teacherRollout ? 1.f : 0.f;
 
 			// Collect obs
 			std::vector<float> allNewObs = {};
@@ -519,9 +523,11 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 					allNewObs += envSet->state.obs.data;
 					allNewActionMasks += envSet->state.actionMasks.data;
 
-					// Run all old obs and old action parser on each player
-					// TODO: Could be multithreaded
-					for (int arenaIdx = 0; arenaIdx < envSet->arenas.size(); arenaIdx++) {
+					// Identical contracts must use exactly the same mirrored, pre-step observations.
+					if (tlConfig.sameObservationAndActions) {
+						allOldObs += envSet->state.obs.data;
+						allOldActionMasks += envSet->state.actionMasks.data;
+					} else for (int arenaIdx = 0; arenaIdx < envSet->arenas.size(); arenaIdx++) {
 						auto& gs = envSet->state.gameStates[arenaIdx];
 						for (auto& player : gs.players) {
 							allOldObs += oldObsBuilders[arenaIdx]->BuildObs(player, gs);
@@ -537,8 +543,8 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 					}
 
 					ppo->InferActions(
-						tStates.to(ppo->device, true), tActionMasks.to(ppo->device, true), 
-						&tActions, &tLogProbs
+						tStates.to(ppo->device, true), tActionMasks.to(ppo->device, true),
+						&tActions, &tLogProbs, teacherRollout ? &oldModels : nullptr
 					);
 
 					auto curActions = TENSOR_TO_VEC<int>(tActions);
@@ -568,16 +574,19 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 			if (!allActionMaps.empty())
 				tActionMaps = torch::tensor(allActionMaps).reshape({ -1, numActions }).to(ppo->device);
 
-			// Transfer learn
+			// Transfer uses libtorch's whole-batch optimizer, not PPO's threaded minibatcher.
+			if (ppo->device.is_cpu() && learnThreads > 0) torch::set_num_threads(learnThreads);
 			ppo->TransferLearn(oldModels, tNewObs, tOldObs, tNewActionMasks, tOldActionMasks, tActionMaps, report, tlConfig);
 
 			if (versionMgr)
 				versionMgr->OnIteration(ppo, report, totalTimesteps, prevTimesteps);
 
-			if (saveQueued) {
-				if (!config.checkpointFolder.empty())
-					Save();
-				exit(0);
+			if (saveQueued || quitRequested || (config.maxTimesteps && totalTimesteps >= config.maxTimesteps) || tlConfig.evaluationOnly) {
+				report.Finish();
+				if (metricSender) metricSender->Send(report);
+				report.Display({ "Transfer Learn Accuracy", "Transfer Learn Loss", "Transfer KL", "Transfer Teacher Rollout", "Total Timesteps" });
+				if (!tlConfig.evaluationOnly && !config.checkpointFolder.empty()) Save();
+				return;
 			}
 
 			if (!config.checkpointFolder.empty()) {
@@ -605,6 +614,8 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 				{
 					"Transfer Learn Accuracy",
 					"Transfer Learn Loss",
+					"Transfer KL",
+					"Transfer Teacher Rollout",
 					"",
 					"Policy Entropy",
 					"Old Policy Entropy",
