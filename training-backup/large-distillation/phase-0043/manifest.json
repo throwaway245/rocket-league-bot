@@ -1,0 +1,82 @@
+{
+  "Total Timesteps": 31975632,
+  "checkpoint_sha256": {
+    "INFO.json": "84c9c49a7a49b745cb3132e4359254ea5c68667830645d099d1e34fc88405bfe",
+    "POLICY.lt": "459c6d44c8dacc7fc92cb3d7ffd031d06550b8028667767a70a711a145740f34",
+    "POLICY_OPTIM.lt": "3dba45b6a75e86917cb7e29a994e03ec7cc14bd013400f76d6b37635aa4bc700",
+    "RUNNING_STATS.json": "c289edb4edb051384834f115db3ee8e411505c92309cd9ecece485c344afd0d6",
+    "SHARED_HEAD.lt": "6f8c32641595c7baf48b24a3a3d69bb37d1146c4de8242755f745b5880019750",
+    "SHARED_HEAD_OPTIM.lt": "d1ca89bf309a619d08719a05cc584b489615a724f74f65dbc4fec62df6732256",
+    "SHARED_HEAD_SLOTS.lt": "18a78649cd15df0f096de7ce71595d2905a882b586fef9f065b66c04a8583925"
+  },
+  "match_results": {
+    "a": {
+      "air_ratio": 0.3662222222222222,
+      "avg_ball_distance": 1261.0131797451443,
+      "avg_boost": 15.115938631852467,
+      "avg_speed": 1208.4994977438184,
+      "ball_touches": 213,
+      "ball_touches_per_minute": 42.6,
+      "goals": 24,
+      "kickoff_first_touches": 18,
+      "model": "s",
+      "name": "training-backup/learner/7178045919"
+    },
+    "b": {
+      "air_ratio": 0.32155555555555554,
+      "avg_ball_distance": 1752.5125957573784,
+      "avg_boost": 15.191665116018719,
+      "avg_speed": 1130.8868994728857,
+      "ball_touches": 65,
+      "ball_touches_per_minute": 13.0,
+      "goals": 0,
+      "kickoff_first_touches": 24,
+      "model": "foundation-policy-v1",
+      "name": "training-backup/large-distillation/phase-0042/checkpoint"
+    },
+    "deterministic": false,
+    "evidence": {
+      "distillation_batch": 1024,
+      "epochs": 1,
+      "large_start": "training-backup/large-distillation/phase-0042/checkpoint",
+      "learning_rate": 0.0001,
+      "loser": "large",
+      "replay_history_hashes": {
+        "current-policy.pt": "109862e41244846177cd57cf87c2b1e2f1d2987d2bceaf7fae67b7139e60e1ba",
+        "older.pt": "af28984fbd8c1ed7f09e038023adc2a22cd16083aeef8c7f1d5e07715a6a0449",
+        "previous-actions.pt": "11e8a2e488a6253bd3b6ba064c1b531bcf9559b06293f877d366ded20df26544"
+      },
+      "replay_weight": 1,
+      "seed": 20275322,
+      "teacher_rollout": 0,
+      "total_timesteps_end": 31975632,
+      "total_timesteps_start": 31766832,
+      "winner": "small A",
+      "winner_actions_and_policy": "traces/winner-a.pt and traces/winner-a-policy.pt"
+    },
+    "game_minutes": 5.0,
+    "kickoffs": 25,
+    "match_draws": 0,
+    "match_seconds": 300,
+    "match_wins_a": 1,
+    "match_wins_b": 0,
+    "max_seconds": 0.0,
+    "max_seconds_ends": 0,
+    "mode": "1v1",
+    "no_touch_timeout": 10.0,
+    "no_touch_timeouts": 0,
+    "num_arenas": 1,
+    "real_seconds": 6.691668736,
+    "seed": 20275321,
+    "side_a_team": "orange",
+    "single_match": true,
+    "tactical_restart_probability": 0.0
+  },
+  "model": "foundation-policy-v1",
+  "phase": 43,
+  "total_timesteps": 31975632,
+  "winner_replay": {
+    "compressed_sha256": "d09eda0a1793e741ed2beafd36445df0bf4a869c147a3b6cbd522fe4c8a0f5a4",
+    "uncompressed_sha256": "b77089d9f00af5224d60534a0e8ae2425387d5c966d8f868809495a6b56c65b6"
+  }
+}
