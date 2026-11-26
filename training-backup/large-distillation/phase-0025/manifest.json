@@ -1,0 +1,173 @@
+{
+  "Total Timesteps": 17714592,
+  "checkpoint_sha256": {
+    "INFO.json": "84c9c49a7a49b745cb3132e4359254ea5c68667830645d099d1e34fc88405bfe",
+    "POLICY.lt": "bc86940eb29743cae8cc5301e0cb1db626b7a9e2790706192600c61d8322e7c3",
+    "POLICY_OPTIM.lt": "ec7f6d1df6080722db8a1335faa71adb232837981fa392c3979c787365c209ec",
+    "RUNNING_STATS.json": "ae380fe946d0a9a2968ba9f1ef1da12b3a1d21697cc3aee9654d0da9f86f132e",
+    "SHARED_HEAD.lt": "62ed8e47288e0a9ee5f495d889e952f1993f972fc5c87c2416ce4db3db9fc0fe",
+    "SHARED_HEAD_OPTIM.lt": "9f55763c7ad7d8b21837b065933fc3b053143b4f95b32cd8e34ce216b6f127b5",
+    "SHARED_HEAD_SLOTS.lt": "04fb1d831a58b3a70627598b75333b9bc9c3d2f8387f49bbf1a7a32acff838de"
+  },
+  "match_results": {
+    "a_name": "training-backup/learner/7178045919",
+    "b_name": "training-backup/large-distillation/phase-0024/checkpoint",
+    "evidence": {
+      "distillation_batch": 1024,
+      "distillation_seed": 20273702,
+      "epochs_per_batch": 1,
+      "history_replay_sha256": {
+        "phase-0021.pt": "1dc5b16842e60da97fc5d7df644137e1819a5f23e8bc2993c7fb2ea4538b9c70",
+        "phase-0022.pt": "82bb9c8d117b4ae9c21be38565217913811a6e31ccb47d2c2dd07a3e71a03cc6",
+        "phase-0023.pt": "25b23c37957f12f51ff881c92e711bb8bb10fa1787690a4398a230acbcb7582c",
+        "phase-0024.pt": "323a4fbff99db877ad116baa15a97029e7c093b19a5d55712a0a7266d817ba35"
+      },
+      "large_start_checkpoint": "training-backup/large-distillation/phase-0024/checkpoint",
+      "learning_rate": 0.0001,
+      "method": "five-minute matches; half of restarts sampled from tactical situations (nonstandard); ties discarded; winner actions sampled every five decisions; bounded per-side reservoir",
+      "replay_weight": 1,
+      "small_checkpoint": "training-backup/learner/7178045919",
+      "teacher_rollout": 0,
+      "total_timesteps_end": 17714592,
+      "total_timesteps_start": 14707872,
+      "trace_sha256": {
+        "1v1-winner-a.pt": "73af2a5ac7fb21294664b6d162146b6c344f37ac2e5d20e7c20265fa5c304c3e",
+        "2v2-winner-a.pt": "a3c0a987ba7b43ed3809c7cc1649f73afdc5b3185547ee04e0e2d0408e7b8e16",
+        "3v3-winner-a.pt": "b2b4f4867cc75af7ce492345519c263c2d2874db7bc9179acb1a7513df6f1b66",
+        "winner-a.pt": "d7b48ed22352f346d14589483af9bb28ab34ff1b6605264df2604e48d5a74732"
+      }
+    },
+    "modes": {
+      "1v1": {
+        "a": {
+          "air_ratio": 0.3203611111111111,
+          "avg_ball_distance": 1145.2310456839668,
+          "avg_boost": 23.311567816189044,
+          "avg_speed": 1354.631774634752,
+          "ball_touches": 5716,
+          "ball_touches_per_minute": 47.63333333333333,
+          "goals": 727,
+          "kickoff_first_touches": 572,
+          "model": "s",
+          "name": "training-backup/learner/7178045919"
+        },
+        "b": {
+          "air_ratio": 0.26814814814814814,
+          "avg_ball_distance": 2105.4758317382953,
+          "avg_boost": 22.70203482468371,
+          "avg_speed": 1271.0697128914424,
+          "ball_touches": 939,
+          "ball_touches_per_minute": 7.825,
+          "goals": 31,
+          "kickoff_first_touches": 339,
+          "model": "foundation-policy-v1",
+          "name": "training-backup/large-distillation/phase-0024/checkpoint"
+        },
+        "deterministic": false,
+        "game_minutes": 120.0,
+        "kickoffs": 782,
+        "match_draws": 0,
+        "match_seconds": 300,
+        "match_wins_a": 24,
+        "match_wins_b": 0,
+        "max_seconds": 0.0,
+        "max_seconds_ends": 0,
+        "mode": "1v1",
+        "no_touch_timeout": 10.0,
+        "no_touch_timeouts": 0,
+        "real_seconds": 48.361993421,
+        "seed": 20273701,
+        "tactical_restart_probability": 0.5
+      },
+      "2v2": {
+        "a": {
+          "air_ratio": 0.2567453703703704,
+          "avg_ball_distance": 2090.3382311384767,
+          "avg_boost": 30.454735395326658,
+          "avg_speed": 1295.5621902144976,
+          "ball_touches": 3704,
+          "ball_touches_per_minute": 30.866666666666667,
+          "goals": 730,
+          "kickoff_first_touches": 575,
+          "model": "s",
+          "name": "training-backup/learner/7178045919"
+        },
+        "b": {
+          "air_ratio": 0.23376851851851851,
+          "avg_ball_distance": 2565.9994647198077,
+          "avg_boost": 30.740263596819506,
+          "avg_speed": 1241.9353430365115,
+          "ball_touches": 689,
+          "ball_touches_per_minute": 5.741666666666666,
+          "goals": 21,
+          "kickoff_first_touches": 302,
+          "model": "foundation-policy-v1",
+          "name": "training-backup/large-distillation/phase-0024/checkpoint"
+        },
+        "deterministic": false,
+        "game_minutes": 120.0,
+        "kickoffs": 775,
+        "match_draws": 0,
+        "match_seconds": 300,
+        "match_wins_a": 24,
+        "match_wins_b": 0,
+        "max_seconds": 0.0,
+        "max_seconds_ends": 0,
+        "mode": "2v2",
+        "no_touch_timeout": 10.0,
+        "no_touch_timeouts": 0,
+        "real_seconds": 54.536419287,
+        "seed": 20273701,
+        "tactical_restart_probability": 0.5
+      },
+      "3v3": {
+        "a": {
+          "air_ratio": 0.2467037037037037,
+          "avg_ball_distance": 2439.68379781829,
+          "avg_boost": 34.298480260167224,
+          "avg_speed": 1249.2565602040347,
+          "ball_touches": 3293,
+          "ball_touches_per_minute": 27.441666666666666,
+          "goals": 685,
+          "kickoff_first_touches": 498,
+          "model": "s",
+          "name": "training-backup/learner/7178045919"
+        },
+        "b": {
+          "air_ratio": 0.2209567901234568,
+          "avg_ball_distance": 2528.9786479290856,
+          "avg_boost": 33.67303813645317,
+          "avg_speed": 1150.2806380981867,
+          "ball_touches": 818,
+          "ball_touches_per_minute": 6.816666666666666,
+          "goals": 28,
+          "kickoff_first_touches": 319,
+          "model": "foundation-policy-v1",
+          "name": "training-backup/large-distillation/phase-0024/checkpoint"
+        },
+        "deterministic": false,
+        "game_minutes": 120.0,
+        "kickoffs": 737,
+        "match_draws": 0,
+        "match_seconds": 300,
+        "match_wins_a": 24,
+        "match_wins_b": 0,
+        "max_seconds": 0.0,
+        "max_seconds_ends": 0,
+        "mode": "3v3",
+        "no_touch_timeout": 10.0,
+        "no_touch_timeouts": 0,
+        "real_seconds": 65.484356687,
+        "seed": 20273701,
+        "tactical_restart_probability": 0.5
+      }
+    }
+  },
+  "model": "foundation-policy-v1",
+  "phase": 25,
+  "total_timesteps": 17714592,
+  "winner_replay": {
+    "compressed_sha256": "d25f6866a23761171716f08dc0155abde4e156d1d618d9d271d4496fa563c6bf",
+    "uncompressed_sha256": "d7b48ed22352f346d14589483af9bb28ab34ff1b6605264df2604e48d5a74732"
+  }
+}
