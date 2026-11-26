@@ -95,7 +95,14 @@ std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RL
 		tActionMasks = tActionMasks.to(device);
 		torch::Tensor tActions, tLogProbs;
 
-		PPOLearner::InferActionsFromModels(*models, tObs, tActionMasks, deterministic, temperature, false, &tActions, &tLogProbs);
+		// Policy probabilities are clamped to a small positive value for PPO log/entropy
+		// calculations. Never sample that numerical floor on a disabled action during
+		// evaluation or winner-trace capture.
+		auto probs = PPOLearner::InferPolicyProbsFromModels(*models, tObs, tActionMasks, temperature, false);
+		auto allowed = tActionMasks.to(torch::kBool);
+		TORCH_CHECK(allowed.any(-1).all().item<bool>(), "No legal actions for inference");
+		probs = probs.masked_fill(allowed.logical_not(), 0);
+		PPOLearner::ChooseActions(probs, deterministic, &tActions, &tLogProbs);
 
 		auto actionIndices = TENSOR_TO_VEC<int>(tActions);
 		if (trace) {
