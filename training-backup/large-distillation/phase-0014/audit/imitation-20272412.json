@@ -1,0 +1,47 @@
+{
+  "checkpoint_total_timesteps": 5687712,
+  "method": "fresh observations; no weight updates; teacher-to-large KL and argmax agreement",
+  "modes": {
+    "1v1": {
+      "0": {
+        "accuracy": 0.3955,
+        "eval_total_timesteps_reported": 5691808,
+        "kl": 2.3596
+      },
+      "1": {
+        "accuracy": 0.4558,
+        "eval_total_timesteps_reported": 5691808,
+        "kl": 1.5601
+      }
+    },
+    "2v2": {
+      "0": {
+        "accuracy": 0.3518,
+        "eval_total_timesteps_reported": 5691808,
+        "kl": 2.6094
+      },
+      "1": {
+        "accuracy": 0.4922,
+        "eval_total_timesteps_reported": 5691808,
+        "kl": 1.3382
+      }
+    },
+    "3v3": {
+      "0": {
+        "accuracy": 0.3947,
+        "eval_total_timesteps_reported": 5691816,
+        "kl": 2.3207
+      },
+      "1": {
+        "accuracy": 0.4418,
+        "eval_total_timesteps_reported": 5691816,
+        "kl": 1.4518
+      }
+    }
+  },
+  "rollout_types": {
+    "0": "large actor",
+    "1": "small actor"
+  },
+  "seed": 20272412
+}
