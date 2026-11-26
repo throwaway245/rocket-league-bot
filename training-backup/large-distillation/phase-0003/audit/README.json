@@ -1,0 +1,17 @@
+{
+  "candidate_promoted": false,
+  "files": {
+    "audit-phase2-current-20271519.json": "b663e55030eed0baf20e08b358e2185e1661442fb64a99ee2a7198acea02ac11",
+    "audit-phase2-old-20271519.json": "2b45567697cccd7cd0eb38572c3247eea58ea52d6a150dea98adf0e456018b40",
+    "audit-phase3-current-20271219.json": "6601a2bc9ef7d5f9d28cde72b2c1ed4101b424a3e43490c20c4083696a4295a2",
+    "audit-phase3-current-20271519.json": "e3eb38894b1372a86fc4013f4ddcf3681d86f735a927bf4cd39e3b7c2e090efc",
+    "audit-phase3-old-20271219.json": "f5a1dab1dde6f988079e936249fdf6d572f15a3c6d69fd9c6844ff5743318e84",
+    "audit-phase3-old-20271519.json": "c5462280138ce681e422b6fb7fc2c848836c8938fa0fb3a7e0465c5618209dee"
+  },
+  "note": "phase-two results on 20271219 are in phase-0002/audit; seed 20271519 used for phase-two/three comparison",
+  "protocol": "side-balanced first-goal kickoff evaluation, not full matches; 20 minutes per mode; both policies sampled; 60-second maximum and finish kickoffs",
+  "seeds": [
+    20271219,
+    20271519
+  ]
+}
