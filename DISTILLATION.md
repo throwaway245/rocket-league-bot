@@ -20,6 +20,35 @@ multimode input/action contract and inexpensive, order-invariant per-player enco
 roughly ten times the 404,314-parameter small actor. Training this network is materially slower
 than the current CPU-sized `s` model; the shape is fixed, not the distillation or PPO recipe.
 
+## Actor-only successor (experimental)
+
+`foundation-policy-v1` keeps the exact `foundation-v1` actor and shared encoder/trunk,
+with no critic or critic optimizer. It is for inference and distillation only; PPO is
+explicitly rejected. Inference already used only the actor. To migrate an available
+`foundation-v1` checkpoint without modifying it, run
+`python3 tools/export_actor_only.py OLD_CHECKPOINT NEW_CHECKPOINT`. The destination
+must not exist. The export copies and verifies actor weights, carries compatible actor
+optimizer state when present, and excludes critic weights and optimizer state. Keep the
+original until inference and resumed-distillation equivalence are validated.
+
+Winner trace capture uses five-minute simulated regulation matches, resets kickoffs after
+goals without resetting the match score, and discards tied and unfinished matches.
+It samples actions from the winning side only, with action masks and matching mirrored
+observations. With replay weight 1 and teacher rollout 0, transfer updates are based solely
+on recorded winner actions; no fresh teacher probabilities are queried. Replay is imitation,
+not PPO. These experimental paths require native regression tests and independent validation;
+no candidate should be promoted automatically. Each completed distillation phase must be
+verified, saved under `training-backup/large-distillation/`, committed, and pushed before
+another phase starts. Run `tools/backup_distillation_phase.py CHECKPOINT --phase N
+--match-results RESULTS.json` to create a non-overwriting phase directory containing
+weights, optimizer state, match evidence, and SHA-256 checksums. Commit and push it on
+the current branch; the helper intentionally does not run Git. `Total Timesteps` counts
+student rollout observations, not unique replay actions or PPO steps.
+
+The first new actor was initialized from scratch at seed 20271201; its initial checkpoint
+is `phase-0000`. The original 51,132,600-observation student was lost with the ephemeral
+workspace and is not represented by this checkpoint.
+
 ## First teacher and method
 
 The first teacher is the immutable **best confirmed** small checkpoint

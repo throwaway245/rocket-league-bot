@@ -1,0 +1,16 @@
+{
+  "Total Timesteps": 0,
+  "checkpoint_sha256": {
+    "INFO.json": "84c9c49a7a49b745cb3132e4359254ea5c68667830645d099d1e34fc88405bfe",
+    "POLICY.lt": "803658351b898e753c73a9557ee75903d13e96657a01e63eb7079b75ba7d48fb",
+    "POLICY_OPTIM.lt": "710643c33edceaa4fca7eba6a24dcafb48b026caa35ee39b5331d3800170a77d",
+    "RUNNING_STATS.json": "382cc4bde7fa00df247393d364d1e6f578ac7bac73226986bdb2bf0f3445cd28",
+    "SHARED_HEAD.lt": "b2b1616ca0f9f608c557039e44f91db50d57b5bc9b6a0fe55a5e20d314db051c",
+    "SHARED_HEAD_OPTIM.lt": "52b71968e5ec50028a6c9548d5c4bb702b332bebcc6c031fa24ffcd548b47d98",
+    "SHARED_HEAD_SLOTS.lt": "069f62367796967ae12fb4d5589a712f1d3f12db04354095b3601612988db4e6"
+  },
+  "match_results": null,
+  "model": "foundation-policy-v1",
+  "phase": 0,
+  "total_timesteps": 0
+}

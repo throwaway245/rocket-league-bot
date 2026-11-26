@@ -584,7 +584,7 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 			if (saveQueued || quitRequested || (config.maxTimesteps && totalTimesteps >= config.maxTimesteps) || tlConfig.evaluationOnly) {
 				report.Finish();
 				if (metricSender) metricSender->Send(report);
-				report.Display({ "Transfer Learn Accuracy", "Transfer Learn Loss", "Transfer KL", "Transfer Teacher Rollout", "Total Timesteps" });
+				report.Display({ "Transfer Learn Accuracy", "Transfer Learn Loss", "Transfer KL", "Transfer Replay KL", "Transfer Teacher Rollout", "Total Timesteps" });
 				if (!tlConfig.evaluationOnly && !config.checkpointFolder.empty()) Save();
 				return;
 			}
@@ -615,6 +615,7 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 					"Transfer Learn Accuracy",
 					"Transfer Learn Loss",
 					"Transfer KL",
+					"Transfer Replay KL",
 					"Transfer Teacher Rollout",
 					"",
 					"Policy Entropy",
@@ -668,6 +669,8 @@ void GGL::Learner::StartSkillMatches(int numRounds, std::function<void(int round
 }
 
 void GGL::Learner::Start() {
+	if (config.ppo.actorOnly)
+		RG_ERR_CLOSE("Actor-only models cannot run PPO: no value network is available");
 
 	if (!config.policyVersionsFolder.empty()) {
 		// Training adds and removes versions, which would change the versions of the other run
@@ -1003,18 +1006,26 @@ void GGL::Learner::Start() {
 						if (config.addRewardsToMetrics && (Math::RandInt(0, config.rewardSampleRandInterval) == 0)) {
 							int numSamples = RS_MIN(envSet->arenas.size(), config.maxRewardSamples);
 							std::unordered_map<std::string, AvgTracker> avgRewards = {};
+							std::unordered_map<std::string, AvgTracker> appliedRewards = {}, absAppliedRewards = {};
 							for (int i = 0; i < numSamples; i++) {
 								int arenaIdx = Math::RandInt(0, envSet->arenas.size());
 								auto& prevRewards = envSet->state.lastRewards[arenaIdx];
+								auto& applied = envSet->state.lastAppliedRewards[arenaIdx];
 
 								for (int j = 0; j < envSet->rewards[arenaIdx].size(); j++) {
 									std::string rewardName = envSet->rewards[arenaIdx][j].reward->GetName();
 									avgRewards[rewardName] += prevRewards[j];
+									appliedRewards[rewardName] += applied[j];
+									absAppliedRewards[rewardName] += std::abs(applied[j]);
 								}
 							}
 
 							for (auto& pair : avgRewards)
 								report.AddAvg("Rewards/" + pair.first, pair.second.Get());
+							for (auto& pair : appliedRewards)
+								report.AddAvg("Applied Rewards/" + pair.first, pair.second.Get());
+							for (auto& pair : absAppliedRewards)
+								report.AddAvg("Abs Applied Rewards/" + pair.first, pair.second.Get());
 						}
 
 						// Now that we've inferred and stepped the env, we can add that stuff to the trajectories

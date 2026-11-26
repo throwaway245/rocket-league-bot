@@ -2,6 +2,7 @@
 
 #include <GigaLearnCPP/Util/Models.h>
 #include <GigaLearnCPP/PPO/PPOLearner.h>
+#include <torch/serialize.h>
 
 GGL::InferUnit::InferUnit(
 	RLGC::ObsBuilder* obsBuilder, int obsSize, RLGC::ActionParser* actionParser,
@@ -35,6 +36,22 @@ void GGL::InferUnit::SetMirrorX(int mirrorX) {
 	obsBuilder->mirrorXTeam[0] = obsBuilder->mirrorXTeam[1] = mirrorX;
 }
 
+void GGL::InferUnit::SaveInferenceTrace(const InferenceTrace& trace, int obsSize, int actionCount, const std::filesystem::path& path) {
+	TORCH_CHECK(!std::filesystem::exists(path), "Refusing to overwrite match replay");
+	auto rows = (int64_t)trace.actions.size();
+	TORCH_CHECK(rows > 0 && trace.observations.size() == rows * obsSize && trace.actionMasks.size() == rows * actionCount,
+		"Invalid or empty match trace");
+	auto obs = torch::tensor(trace.observations).reshape({rows, obsSize});
+	auto mask = torch::tensor(trace.actionMasks).reshape({rows, actionCount});
+	auto acts = torch::tensor(trace.actions, torch::kLong);
+	TORCH_CHECK((acts >= 0).all().item<bool>() && (acts < actionCount).all().item<bool>() &&
+		(mask.gather(1, acts.unsqueeze(1)) != 0).all().item<bool>(), "Invalid recorded action");
+	auto probs = torch::zeros({rows, actionCount}, torch::kFloat32);
+	probs.scatter_(1, acts.unsqueeze(1), 1.f);
+	std::vector<torch::Tensor> shard = {obs, mask, probs};
+	torch::save(shard, path.string());
+}
+
 void GGL::InferUnit::SetRandomSeed(uint64_t seed) {
 	torch::manual_seed(seed);
 }
@@ -43,7 +60,7 @@ RLGC::Action GGL::InferUnit::InferAction(const RLGC::Player& player, const RLGC:
 	return BatchInferActions({ player }, { state }, deterministic, temperature)[0];
 }
 
-std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature) {
+std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature, InferenceTrace* trace) {
 	RG_ASSERT(players.size() > 0 && states.size() > 0);
 	RG_ASSERT(players.size() == states.size());
 
@@ -81,6 +98,11 @@ std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RL
 		PPOLearner::InferActionsFromModels(*models, tObs, tActionMasks, deterministic, temperature, false, &tActions, &tLogProbs);
 
 		auto actionIndices = TENSOR_TO_VEC<int>(tActions);
+		if (trace) {
+			trace->observations = allObs;
+			trace->actionMasks = allActionMasks;
+			trace->actions = actionIndices;
+		}
 		
 		for (int i = 0; i < batchSize; i++) {
 			RLGC::Action action = actionParser->ParseAction(actionIndices[i], players[i], states[i]);

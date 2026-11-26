@@ -21,6 +21,8 @@ namespace GGL {
 	public:
 		ModelSet models = {};
 		ModelSet guidingPolicyModels = {};
+		std::vector<torch::Tensor> transferReplay = {};
+		bool transferReplayInitialized = false;
 
 		PPOLearnerConfig config;
 		torch::Device device;

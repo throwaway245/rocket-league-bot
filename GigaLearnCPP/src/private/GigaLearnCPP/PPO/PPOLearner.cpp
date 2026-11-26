@@ -22,7 +22,7 @@ GGL::PPOLearner::PPOLearner(int obsSize, int numActions, PPOLearnerConfig _confi
 	}
 	miniBatchSize = RS_CLAMP(miniBatchSize, (int64_t)1, config.batchSize);
 
-	MakeModels(true, obsSize, numActions, config.sharedHead, config.policy, config.critic, device, models);
+	MakeModels(!config.actorOnly, obsSize, numActions, config.sharedHead, config.policy, config.critic, device, models);
 
 	SetLearningRates(config.policyLR, config.criticLR);
 
@@ -625,8 +625,9 @@ void GGL::PPOLearner::TransferLearn(
 	const TransferLearnConfig& tlConfig
 ) {
 
+	const bool replayOnly = tlConfig.replayWeight == 1.f && !tlConfig.replayInput.empty() && !tlConfig.evaluationOnly;
 	torch::Tensor oldProbs;
-	{ // No grad for old model inference
+	if (!replayOnly) { // Replay-only winner cloning never queries a teacher for labels.
 		RG_NO_GRAD;
 		oldProbs = InferPolicyProbsFromModels(oldModels, oldObs, oldActionMasks, config.policyTemperature, config.useHalfPrecision);
 		report["Old Policy Entropy"] = ComputeEntropy(oldProbs, oldActionMasks, config.maskEntropy).detach().cpu().item<float>();
@@ -635,27 +636,63 @@ void GGL::PPOLearner::TransferLearn(
 			oldProbs = oldProbs.gather(1, actionMaps);
 	}
 
+	if (!transferReplayInitialized) {
+		transferReplayInitialized = true;
+		if (!tlConfig.replayInput.empty()) {
+			torch::load(transferReplay, tlConfig.replayInput.string());
+			TORCH_CHECK(transferReplay.size() == 3, "Replay must contain observations, masks, and teacher probabilities");
+			auto& obs = transferReplay[0]; auto& mask = transferReplay[1]; auto& probs = transferReplay[2];
+			TORCH_CHECK(obs.dim() == 2 && mask.dim() == 2 && probs.dim() == 2 && obs.size(0) > 0 &&
+				obs.size(0) == mask.size(0) && obs.size(0) == probs.size(0) &&
+				obs.size(1) == newObs.size(1) && mask.size(1) == newActionMasks.size(1) &&
+				probs.size(1) == newActionMasks.size(1), "Replay dimensions do not match the policy contract");
+			TORCH_CHECK(torch::isfinite(obs).all().item<bool>() && torch::isfinite(probs).all().item<bool>() &&
+				(probs >= 0).all().item<bool>() &&
+				torch::allclose(probs.sum(-1), torch::ones({probs.size(0)}, probs.options()), 1e-4, 1e-4) &&
+				(probs.masked_select(mask == 0).abs() < 1e-6).all().item<bool>() &&
+				(mask.to(torch::kFloat32).sum(-1) > 0).all().item<bool>(), "Invalid replay values or action masks");
+			for (auto& tensor : transferReplay) tensor = tensor.to(device);
+		}
+		if (!tlConfig.replayOutput.empty()) {
+			TORCH_CHECK(!replayOnly, "Replay-only training cannot write fresh teacher labels");
+			TORCH_CHECK(!std::filesystem::exists(tlConfig.replayOutput), "Refusing to overwrite replay shard");
+			std::vector<torch::Tensor> shard = {newObs.detach().cpu(), newActionMasks.detach().cpu(), oldProbs.detach().cpu()};
+			torch::save(shard, tlConfig.replayOutput.string());
+		}
+	}
+
 	for (auto& model : GetPolicyModels())
 		model->SetOptimLR(tlConfig.lr);
 
 	auto policyBefore = models["policy"]->CopyParams();
 	
 	for (int i = 0; i < tlConfig.epochs; i++) {
-		torch::Tensor newProbs = InferPolicyProbsFromModels(models, newObs, newActionMasks, config.policyTemperature, false);
-
-		// Non-summative KL div	loss
-		torch::Tensor transferLearnLoss;
-		if (tlConfig.useKLDiv) {
-			// Masked actions have zero probability. Clamp only inside the logarithm.
-			transferLearnLoss = oldProbs * (oldProbs.clamp_min(1e-12).log() - newProbs.clamp_min(1e-12).log());
-		} else {
-			transferLearnLoss = (oldProbs - newProbs).abs();
+		torch::Tensor newProbs, transferLearnLoss;
+		if (!replayOnly) {
+			newProbs = InferPolicyProbsFromModels(models, newObs, newActionMasks, config.policyTemperature, false);
+			if (tlConfig.useKLDiv) {
+				transferLearnLoss = oldProbs * (oldProbs.clamp_min(1e-12).log() - newProbs.clamp_min(1e-12).log());
+			} else {
+				transferLearnLoss = (oldProbs - newProbs).abs();
+			}
+			transferLearnLoss = transferLearnLoss.pow(tlConfig.lossExponent).mean() * tlConfig.lossScale;
 		}
-		transferLearnLoss = transferLearnLoss.pow(tlConfig.lossExponent);
-		transferLearnLoss = transferLearnLoss.mean();
-		transferLearnLoss *= tlConfig.lossScale;
 
-		if (i == 0) {
+		if (!transferReplay.empty() && tlConfig.replayWeight > 0.f && !tlConfig.evaluationOnly) {
+			// Sample old labeled states separately from the fresh teacher batch. The replay term
+			// constrains behavior, not PPO, and never supplies off-policy reward gradients.
+			auto idx = torch::randint(transferReplay[0].size(0), {newObs.size(0)},
+				torch::TensorOptions().dtype(torch::kLong).device(device));
+			auto obs = transferReplay[0].index_select(0, idx);
+			auto masks = transferReplay[1].index_select(0, idx);
+			auto targets = transferReplay[2].index_select(0, idx);
+			auto current = InferPolicyProbsFromModels(models, obs, masks, config.policyTemperature, false);
+			auto replayKL = (targets * (targets.clamp_min(1e-12).log() - current.clamp_min(1e-12).log())).sum(-1).mean();
+			transferLearnLoss = replayOnly ? replayKL : transferLearnLoss * (1.f - tlConfig.replayWeight) + replayKL * tlConfig.replayWeight;
+			report["Transfer Replay KL"] = replayKL.detach().cpu().item<float>();
+		}
+
+		if (i == 0 && !replayOnly) {
 			RG_NO_GRAD;
 			torch::Tensor matchingActionsMask = (newProbs.detach().argmax(-1) == oldProbs.detach().argmax(-1));
 			report["Transfer Learn Accuracy"] = matchingActionsMask.to(torch::kFloat).mean().cpu().item<float>();
@@ -693,10 +730,11 @@ void GGL::PPOLearner::SetLearningRates(float policyLR, float criticLR) {
 	config.criticLR = criticLR;
 
 	models["policy"]->SetOptimLR(policyLR);
-	models["critic"]->SetOptimLR(criticLR);
+	if (models["critic"])
+		models["critic"]->SetOptimLR(criticLR);
 
 	if (models["shared_head"])
-		models["shared_head"]->SetOptimLR(RS_MIN(policyLR, criticLR));
+		models["shared_head"]->SetOptimLR(config.actorOnly ? policyLR : RS_MIN(policyLR, criticLR));
 
 	RG_LOG("PPOLearner: " << RS_STR(std::scientific << "Set learning rate to [" << policyLR << ", " << criticLR << "]"));
 }
