@@ -1,0 +1,16 @@
+{
+  "candidate_promoted": false,
+  "files": {
+    "audit-current-20271219.json": "e0c05dd97ef82e8660c6c4c266adf8f06e16204b0e22a3ba287c6cab5b479b6f",
+    "audit-current-20271519.json": "0c1dc103fd2eea9a46819ea0f319c775f7f87ff29f7e4b6ad051491e00770d68",
+    "audit-old-20271219.json": "5043834663449dddacf56dde3237aad321fc097634987a7f3ebd614d8c9e2ecc",
+    "audit-old-20271519.json": "93f022a2e51963f0ba700aa6556cd454aa23d1bb2480b119623d44a399ebd117",
+    "full-match-small-20273111.json": "113330aeba34d9aecf1ced6c99c11ddc839adcdb1e178ef28d0a7928792e9876"
+  },
+  "full_match_seed": 20273111,
+  "kickoff_seeds": [
+    20271219,
+    20271519
+  ],
+  "protocol": "side-balanced first-goal kickoff episodes and separate standard five-minute matches; no promotion"
+}
