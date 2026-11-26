@@ -36,9 +36,10 @@ goals without resetting the match score, and discards tied and unfinished matche
 It samples actions from the winning side only, with action masks and matching mirrored
 observations. With replay weight 1 and teacher rollout 0, transfer updates are based solely
 on recorded winner actions; no fresh teacher probabilities are queried. `--distill-replay-history`
-optionally mixes a second immutable compatible shard with the current one, bounded to
-100,000 observations per shard. Each replay row is sampled uniformly from the combined
-shards. Phase backups can include a gzip-compressed, SHA-256-verified winner replay;
+optionally mixes a second immutable compatible shard with the current one.
+`--distill-replay-history-dir` can additionally mix 1–8 `.pt` shards from a directory.
+Each shard is bounded to 100,000 observations and the combined replay to 200,000;
+rows are sampled uniformly from the combined shards. Phase backups can include a gzip-compressed, SHA-256-verified winner replay;
 decompress it to an isolated working directory before using it for retention. Replay is
 imitation, not PPO. These experimental paths require native regression tests and independent validation;
 no candidate should be promoted automatically. Each completed distillation phase must be

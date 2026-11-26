@@ -657,11 +657,15 @@ void GGL::PPOLearner::TransferLearn(
 				return shard;
 			};
 			transferReplay = loadShard(tlConfig.replayInput);
-			if (!tlConfig.replayHistory.empty()) {
-				auto history = loadShard(tlConfig.replayHistory);
+			auto appendHistory = [&](const std::filesystem::path& path) {
+				auto history = loadShard(path);
+				TORCH_CHECK(transferReplay[0].size(0) + history[0].size(0) <= 200'000, "Combined replay exceeds memory limit");
 				for (size_t i = 0; i < transferReplay.size(); i++)
 					transferReplay[i] = torch::cat({transferReplay[i], history[i]}, 0);
-			}
+			};
+			if (!tlConfig.replayHistory.empty()) appendHistory(tlConfig.replayHistory);
+			TORCH_CHECK(tlConfig.replayHistories.size() <= 8, "Too many replay shards");
+			for (const auto& path : tlConfig.replayHistories) appendHistory(path);
 			RG_LOG("Loaded " << transferReplay[0].size(0) << " winner replay observations");
 			for (auto& tensor : transferReplay) tensor = tensor.to(device);
 		}

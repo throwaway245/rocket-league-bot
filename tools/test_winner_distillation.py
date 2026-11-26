@@ -46,13 +46,17 @@ class WinnerDistillationTest(unittest.TestCase):
             self.assertGreater(scores['match_wins_a'], 0)
             replay = traces / 'winner-a.pt'
             replay_hash = digest(replay)
+            history_dir = out / 'history'
+            history_dir.mkdir()
+            shutil.copy2(replay, history_dir / 'older.pt')
             candidate = out / 'large'
             shutil.copytree(LARGE, candidate / '0')
             train = [str(BOT), '--model', 'foundation-policy-v1', '--distill-teacher', str(SMALL),
                      '--checkpoints', str(candidate), '--device', 'cpu', '--threads', '2', '--games', '11',
                      '--modes', '1v1,2v2,3v3', '--mode-balance', 'players', '--distill-batch', '72',
                      '--distill-epochs', '1', '--distill-teacher-rollout', '0', '--distill-new-teacher',
-                     '--distill-replay-in', str(replay), '--distill-replay-history', str(replay), '--distill-replay-weight', '1',
+                     '--distill-replay-in', str(replay), '--distill-replay-history', str(replay),
+                     '--distill-replay-history-dir', str(history_dir), '--distill-replay-weight', '1',
                      '--max-timesteps', '72', '--no-metrics', '--seed', '99']
             trained = run(train)
             self.assertIn('Transfer Replay KL', trained.stdout)
