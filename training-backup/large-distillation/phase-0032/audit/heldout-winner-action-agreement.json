@@ -1,0 +1,27 @@
+{
+  "Total Timesteps": 24730272,
+  "student": "large actor phase 32",
+  "target": "sampled actions of small match winners",
+  "dataset": "independent standard five-minute match winner traces, seed 20274511, not used in training",
+  "evaluation": "full per-mode shard; no optimizer update; agreement rounded to four decimals",
+  "modes": {
+    "1v1": {
+      "rows": 10800,
+      "argmax_agreement": 0.4237,
+      "mean_target_kl": 2.8162,
+      "trace_sha256": "836beacd89cebbc63c961b8bee3f7bb08ceeaf3ab3b66e16a8791a90df54c3d1"
+    },
+    "2v2": {
+      "rows": 21600,
+      "argmax_agreement": 0.3893,
+      "mean_target_kl": 3.1563,
+      "trace_sha256": "761e05407d1c442bfc58ee25c22d42087aef523cd0647b5a6d0468bea564d858"
+    },
+    "3v3": {
+      "rows": 32400,
+      "argmax_agreement": 0.347,
+      "mean_target_kl": 3.3733,
+      "trace_sha256": "277dc4f75e52d18e8618a2a9060ae3395d11f87161246d728dcc385ed712fbba"
+    }
+  }
+}
