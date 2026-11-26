@@ -2567,7 +2567,10 @@ EvalResult EvaluateMode(
 
 	const double stepsPerSecond = 120.0 / TICK_SKIP;
 	uint64_t targetGameSteps = (uint64_t)(gameMinutes * 60 * stepsPerSecond);
-	uint64_t gameSteps = 0, traceTick = 0;
+	uint64_t gameSteps = 0, traceTick = 0, winnerRowsSeen[2] = {0, 0};
+	// Separate RNG seeded from a copy, so sampling cannot perturb the simulated kickoffs.
+	auto traceSeedEngine = randEngine;
+	std::mt19937_64 traceRng(((uint64_t)traceSeedEngine() << 32) ^ traceSeedEngine() ^ (uint64_t)teamSize);
 
 	auto startTime = std::chrono::steady_clock::now();
 
@@ -2640,14 +2643,14 @@ EvalResult EvaluateMode(
 
 			std::vector<Action> actions;
 			InferenceTrace batchTrace;
-			bool captureBatch = captureWinners && (traceTick % 20 == 0);
+			bool captureBatch = captureWinners && (traceTick % 5 == 0);
 			if (unit) {
 				actions = unit->BatchInferActions(players[side], states[side], deterministic, 1.f, captureBatch ? &batchTrace : nullptr);
 				if (captureBatch) {
 					int obsSize = unit->obsSize, numActions = unit->actionParser->GetActionAmount();
 					for (size_t k = 0; k < actions.size(); k++) {
 						auto& t = arenas[slots[side][k].first].episodeTraces[side];
-						if (t.actions.size() >= 1024) continue;
+						if (t.actions.size() >= 4096) continue;
 						t.observations.insert(t.observations.end(), batchTrace.observations.begin() + k * obsSize, batchTrace.observations.begin() + (k + 1) * obsSize);
 						t.actionMasks.insert(t.actionMasks.end(), batchTrace.actionMasks.begin() + k * numActions, batchTrace.actionMasks.begin() + (k + 1) * numActions);
 						t.actions.push_back(batchTrace.actions[k]);
@@ -2758,10 +2761,20 @@ EvalResult EvaluateMode(
 					auto& source = ea.episodeTraces[winner];
 					auto& dest = result.winnerTraces[winner];
 					int obsSize = unitA->obsSize, numActions = unitA->actionParser->GetActionAmount();
-					for (size_t k = 0; k < source.actions.size() && dest.actions.size() < 32768; k++) {
-						dest.observations.insert(dest.observations.end(), source.observations.begin() + k * obsSize, source.observations.begin() + (k + 1) * obsSize);
-						dest.actionMasks.insert(dest.actionMasks.end(), source.actionMasks.begin() + k * numActions, source.actionMasks.begin() + (k + 1) * numActions);
-						dest.actions.push_back(source.actions[k]);
+					for (size_t k = 0; k < source.actions.size(); k++) {
+						uint64_t seen = ++winnerRowsSeen[winner];
+						if (dest.actions.size() < 32768) {
+							dest.observations.insert(dest.observations.end(), source.observations.begin() + k * obsSize, source.observations.begin() + (k + 1) * obsSize);
+							dest.actionMasks.insert(dest.actionMasks.end(), source.actionMasks.begin() + k * numActions, source.actionMasks.begin() + (k + 1) * numActions);
+							dest.actions.push_back(source.actions[k]);
+						} else {
+							// Uniform bounded reservoir avoids over-representing early games.
+							auto slot = std::uniform_int_distribution<uint64_t>(0, seen - 1)(traceRng);
+							if (slot >= 32768) continue;
+							std::copy_n(source.observations.begin() + k * obsSize, obsSize, dest.observations.begin() + slot * obsSize);
+							std::copy_n(source.actionMasks.begin() + k * numActions, numActions, dest.actionMasks.begin() + slot * numActions);
+							dest.actions[slot] = source.actions[k];
+						}
 					}
 				}
 			}
