@@ -1,0 +1,28 @@
+{
+  "Total Timesteps": 19719072,
+  "student": "large actor phase 27",
+  "target": "recorded sampled actions of small match winners",
+  "dataset": "per-mode winner traces from phase-27 training games, including rows not selected for combined training replay; nonstandard 50% tactical restarts",
+  "evaluation": "full per-mode shard; no optimizer update; agreement rounded to four decimals",
+  "reverse_direction": "not applicable: no large-model match wins and no small-model distillation",
+  "modes": {
+    "1v1": {
+      "rows": 21600,
+      "argmax_agreement": 0.657,
+      "mean_target_kl": 1.446,
+      "trace_sha256": "3eb32b7bcb935bda7b45ecfa9da1f8447ef468c285dbb893e1e8895619e06619"
+    },
+    "2v2": {
+      "rows": 32768,
+      "argmax_agreement": 0.5536,
+      "mean_target_kl": 2.1962,
+      "trace_sha256": "d886dc754e70f60024e102dbbb0c152e9a46db17889aca2626bdcf913dc302df"
+    },
+    "3v3": {
+      "rows": 32768,
+      "argmax_agreement": 0.5185,
+      "mean_target_kl": 2.351,
+      "trace_sha256": "0ea62ce9182701dc253461bf98837a50c1f4ca59b92cca3e33d2349cc12f0cf2"
+    }
+  }
+}
