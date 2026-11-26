@@ -1,0 +1,31 @@
+{
+  "total_timesteps": 31975632,
+  "training_game": {
+    "mode": "1v1",
+    "rows": 900,
+    "policy_argmax_agreement": 0.7267,
+    "teacher_kl_nats": 0.8349
+  },
+  "reused_monitor": {
+    "note": "Phase-39 standard match observations, repeatedly monitored; not an independent final evaluation",
+    "modes": {
+      "1v1": {
+        "rows": 10800,
+        "policy_argmax_agreement": 0.4897,
+        "teacher_kl_nats": 1.8437
+      },
+      "2v2": {
+        "rows": 21600,
+        "policy_argmax_agreement": 0.4725,
+        "teacher_kl_nats": 2.0381
+      },
+      "3v3": {
+        "rows": 32400,
+        "policy_argmax_agreement": 0.4466,
+        "teacher_kl_nats": 2.071
+      }
+    }
+  },
+  "small_reverse_direction": "not applicable; small won",
+  "target_met": false
+}
