@@ -1,0 +1,7 @@
+{
+    "distill_teacher": "/home/user/rocket-league-bot/training-backup/learner/7178045919",
+    "model": "foundation-policy-v1",
+    "modes": "1v1,2v2,3v3",
+    "obs": "MultiModeObs",
+    "rewards": "Air=0.1, FaceBall=0.25, VelocityPlayerToBall=4, StrongTouch=75, VelocityBallToGoal=3, TeamSpacing=1, PickupBoost=10, SaveBoost=0.2, Bump=20, Demo=80, Goal=200, TouchAccel=15"
+}
