@@ -2,7 +2,7 @@
   "Total Timesteps": 14707872,
   "student": "large actor phase 24",
   "target": "recorded sampled actions of small match winners",
-  "dataset": "phase-24 training winner replay; nonstandard 50% tactical restarts",
+  "dataset": "per-mode winner traces from phase-24 training games, including rows not selected for combined training replay; nonstandard 50% tactical restarts",
   "evaluation": "full per-mode shard; no optimizer update; agreement display rounded to four decimals",
   "reverse_direction": "not applicable: no large-model match wins and no small-model distillation",
   "modes": {
