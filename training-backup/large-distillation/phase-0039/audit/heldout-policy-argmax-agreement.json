@@ -1,0 +1,39 @@
+{
+  "Total Timesteps": 31745952,
+  "dataset": "independent standard five-minute matches, seed 20275211; not used for training",
+  "evaluation": "all per-mode rows, same observation and mask for both policies; no training; four-decimal report precision",
+  "metric": "fraction of identical recorded states where loser-policy argmax equals winner-policy argmax, both legal-action-masked at temperature 1",
+  "modes": {
+    "1v1": {
+      "loser_argmax_vs_sampled_action": 0.4372,
+      "policy_argmax_agreement": 0.496,
+      "rows": 10800,
+      "teacher_kl_nats": 1.7311,
+      "trace_sha256": "e7e06f669f6d10960f4451083bb00afffec1d20b1e44931d8d7373f0d348d15d",
+      "winner_argmax_vs_sampled_action": 0.6569
+    },
+    "2v2": {
+      "loser_argmax_vs_sampled_action": 0.3886,
+      "policy_argmax_agreement": 0.477,
+      "rows": 21600,
+      "teacher_kl_nats": 1.899,
+      "trace_sha256": "fe8303804fd3ac8bc9ce80c066c970b4b38fe7530445ee21e660a54828b84253",
+      "winner_argmax_vs_sampled_action": 0.58
+    },
+    "3v3": {
+      "loser_argmax_vs_sampled_action": 0.3528,
+      "policy_argmax_agreement": 0.4515,
+      "rows": 32400,
+      "teacher_kl_nats": 1.9105,
+      "trace_sha256": "bc38a60a63cbd1acd5a4aafc107eafdfae85f5fb140995ee556852bb531231ac",
+      "winner_argmax_vs_sampled_action": 0.5284
+    }
+  },
+  "student_checkpoint": "training-backup/large-distillation/phase-0039/checkpoint",
+  "teacher_actor_sha256": {
+    "POLICY.lt": "8eae11b32a4d4b77c20a8fac3f5380936416d67149ed1a3094fd384bf707598e",
+    "SHARED_HEAD.lt": "853aa31b05d077c93055aa5c625bbf823750e6b03bfcc94dbf00f17d449eb266",
+    "SHARED_HEAD_SLOTS.lt": "e9d9b84ad3554839cc3b6b9150454180582b3cc1e08c9228666a4adb3d63c61c"
+  },
+  "teacher_checkpoint": "training-backup/learner/7178045919"
+}

@@ -677,22 +677,34 @@ void GGL::PPOLearner::TransferLearn(
 		}
 	}
 
-	// Evaluate every stored winner action once, without optimization or teacher inference.
-	// Winner trace targets are one-hot sampled actions, not teacher argmax labels.
+	// Evaluate each stored state once. Compare both policies on the identical recorded
+	// observation and legal-action mask; the stored one-hot action remains a separate metric.
 	if (tlConfig.evaluationOnly && replayOnly) {
+		TORCH_CHECK(tlConfig.sameObservationAndActions, "Replay policy comparison requires identical observation and action contracts");
 		RG_NO_GRAD;
-		int64_t matches = 0, count = transferReplay[0].size(0);
-		double klSum = 0;
+		int64_t matches = 0, policyMatches = 0, teacherActionMatches = 0, count = transferReplay[0].size(0);
+		double klSum = 0, teacherKlSum = 0;
 		for (int64_t start = 0; start < count; start += 1024) {
 			int64_t end = std::min(start + int64_t(1024), count);
 			auto obs = transferReplay[0].slice(0, start, end);
 			auto masks = transferReplay[1].slice(0, start, end);
 			auto targets = transferReplay[2].slice(0, start, end);
-			auto current = InferPolicyProbsFromModels(models, obs, masks, config.policyTemperature, false);
-			matches += (current.argmax(-1) == targets.argmax(-1)).sum().item<int64_t>();
+			// Match inference uses temperature 1 and excludes disabled actions.
+			auto current = InferPolicyProbsFromModels(models, obs, masks, 1.f, false).masked_fill(masks == 0, 0);
+			auto teacher = InferPolicyProbsFromModels(oldModels, obs, masks, 1.f, false).masked_fill(masks == 0, 0);
+			current = current / current.sum(-1, true);
+			teacher = teacher / teacher.sum(-1, true);
+			auto currentArgmax = current.argmax(-1), teacherArgmax = teacher.argmax(-1), recorded = targets.argmax(-1);
+			matches += (currentArgmax == recorded).sum().item<int64_t>();
+			policyMatches += (currentArgmax == teacherArgmax).sum().item<int64_t>();
+			teacherActionMatches += (teacherArgmax == recorded).sum().item<int64_t>();
 			klSum += (targets * (targets.clamp_min(1e-12).log() - current.clamp_min(1e-12).log())).sum().item<double>();
+			teacherKlSum += (teacher * (teacher.clamp_min(1e-12).log() - current.clamp_min(1e-12).log())).sum().item<double>();
 		}
 		report["Transfer Replay Action Agreement"] = double(matches) / count;
+		report["Transfer Replay Policy Argmax Agreement"] = double(policyMatches) / count;
+		report["Transfer Replay Teacher Action Agreement"] = double(teacherActionMatches) / count;
+		report["Transfer Replay Teacher KL"] = teacherKlSum / count;
 		report["Transfer Replay Rows"] = count;
 		report["Transfer Replay KL"] = klSum / count;
 		return;

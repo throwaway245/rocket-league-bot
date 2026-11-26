@@ -114,8 +114,12 @@ collected batch before updates, not independent proof of competitive strength.
 
 For winner-action distillation, run `--distill-eval --distill-replay-in SHARD
 --distill-replay-weight 1` against the saved loser candidate after each phase. `Transfer Replay
-Action Agreement` is the fraction of **all** rows whose loser-policy argmax equals the winner's
-recorded, sampled action; `Transfer Replay Rows` is its denominator. Run separately for each mode
+Policy Argmax Agreement` is the fraction of **all** rows whose loser-policy argmax equals the
+winner-policy argmax, evaluated on the same recorded observation and mask at temperature 1.
+`Transfer Replay Teacher KL` is KL(winner || loser) on those rows. `Transfer Replay Action
+Agreement` instead compares the loser's argmax with the winner's recorded sampled action, and
+`Transfer Replay Teacher Action Agreement` compares the winner's argmax with that sampled action;
+these two are not policy-argmax agreement. `Transfer Replay Rows` is the denominator. Run separately for each mode
 and each winner-to-loser direction actually trained. These are training-shard measurements, not
 held-out agreement or evidence of match parity. During training the same agreement is a sampled
 minibatch metric, not a full-shard post-update measurement. The evaluation does not update or save

@@ -1,0 +1,173 @@
+{
+  "dataset": "each phase own combined winner training replay; 16384 rows per mode; changing games and nonstandard 50% tactical restarts; not held out",
+  "metric": "loser-policy argmax equals winner-policy argmax on same recorded observations and masks; temperature 1",
+  "phases": [
+    {
+      "Total Timesteps": 14707872,
+      "loser_argmax_vs_sampled_action": 0.7069,
+      "phase": 24,
+      "policy_argmax_agreement": 0.5414,
+      "replay_uncompressed_sha256": "323a4fbff99db877ad116baa15a97029e7c093b19a5d55712a0a7266d817ba35",
+      "rows": 49152,
+      "teacher_kl_nats": 1.3302,
+      "winner_argmax_vs_sampled_action": 0.5839
+    },
+    {
+      "Total Timesteps": 17714592,
+      "loser_argmax_vs_sampled_action": 0.9166,
+      "phase": 25,
+      "policy_argmax_agreement": 0.5756,
+      "replay_uncompressed_sha256": "d7b48ed22352f346d14589483af9bb28ab34ff1b6605264df2604e48d5a74732",
+      "rows": 49152,
+      "teacher_kl_nats": 2.3732,
+      "winner_argmax_vs_sampled_action": 0.5848
+    },
+    {
+      "Total Timesteps": 18716832,
+      "loser_argmax_vs_sampled_action": 0.7432,
+      "phase": 26,
+      "policy_argmax_agreement": 0.5477,
+      "replay_uncompressed_sha256": "1eb6df2ec3d52fcde064e80f95150cf7fd0466cec80576e7ea2bf42d9d1a1af0",
+      "rows": 49152,
+      "teacher_kl_nats": 1.8185,
+      "winner_argmax_vs_sampled_action": 0.5819
+    },
+    {
+      "Total Timesteps": 19719072,
+      "loser_argmax_vs_sampled_action": 0.7307,
+      "phase": 27,
+      "policy_argmax_agreement": 0.5466,
+      "replay_uncompressed_sha256": "57b13a0534ff7ba2256f5bd23f00db21d0996792573cd3262778f129004f070e",
+      "rows": 49152,
+      "teacher_kl_nats": 1.6825,
+      "winner_argmax_vs_sampled_action": 0.5855
+    },
+    {
+      "Total Timesteps": 20721312,
+      "loser_argmax_vs_sampled_action": 0.7276,
+      "phase": 28,
+      "policy_argmax_agreement": 0.5478,
+      "replay_uncompressed_sha256": "ade1998df078fd76cb9d674432834275f237f9559fd9ae6fa64cb5f3bdbb219a",
+      "rows": 49152,
+      "teacher_kl_nats": 1.6243,
+      "winner_argmax_vs_sampled_action": 0.5854
+    },
+    {
+      "Total Timesteps": 21723552,
+      "loser_argmax_vs_sampled_action": 0.727,
+      "phase": 29,
+      "policy_argmax_agreement": 0.5494,
+      "replay_uncompressed_sha256": "bf3e848226b58199e7c4b47ea5b11b06ac070aeb7a4cd1d7ac818ae64e2ceecf",
+      "rows": 49152,
+      "teacher_kl_nats": 1.5929,
+      "winner_argmax_vs_sampled_action": 0.5795
+    },
+    {
+      "Total Timesteps": 22725792,
+      "loser_argmax_vs_sampled_action": 0.727,
+      "phase": 30,
+      "policy_argmax_agreement": 0.5423,
+      "replay_uncompressed_sha256": "d5fce355ca1dbf5501b54ef00cfae1083b2105d2f9337baa4fa9d23fca571874",
+      "rows": 49152,
+      "teacher_kl_nats": 1.5786,
+      "winner_argmax_vs_sampled_action": 0.5864
+    },
+    {
+      "Total Timesteps": 23728032,
+      "loser_argmax_vs_sampled_action": 0.7357,
+      "phase": 31,
+      "policy_argmax_agreement": 0.5424,
+      "replay_uncompressed_sha256": "52d6724f42c3327bc9cf487a05ba5b3da46b09c7db6b627aa90c9914db0585ab",
+      "rows": 49152,
+      "teacher_kl_nats": 1.5797,
+      "winner_argmax_vs_sampled_action": 0.5778
+    },
+    {
+      "Total Timesteps": 24730272,
+      "loser_argmax_vs_sampled_action": 0.7374,
+      "phase": 32,
+      "policy_argmax_agreement": 0.5504,
+      "replay_uncompressed_sha256": "383db57fbe80eb2ac7f3e7b12fe391cf344c8e2f31a117f1a71a0bb9f3a93fdb",
+      "rows": 49152,
+      "teacher_kl_nats": 1.5833,
+      "winner_argmax_vs_sampled_action": 0.5824
+    },
+    {
+      "Total Timesteps": 25732512,
+      "loser_argmax_vs_sampled_action": 0.738,
+      "phase": 33,
+      "policy_argmax_agreement": 0.5541,
+      "replay_uncompressed_sha256": "7e7f9cec68083f7377577daa9ad589ced4952ee671410c8e9e2e1c277a09f5ce",
+      "rows": 49152,
+      "teacher_kl_nats": 1.5722,
+      "winner_argmax_vs_sampled_action": 0.5808
+    },
+    {
+      "Total Timesteps": 26734752,
+      "loser_argmax_vs_sampled_action": 0.7417,
+      "phase": 34,
+      "policy_argmax_agreement": 0.5479,
+      "replay_uncompressed_sha256": "1e01e45b1ec4474044fc8b94a2eef732230d80447d393ab1e299560bf917a429",
+      "rows": 49152,
+      "teacher_kl_nats": 1.6003,
+      "winner_argmax_vs_sampled_action": 0.5765
+    },
+    {
+      "Total Timesteps": 27736992,
+      "loser_argmax_vs_sampled_action": 0.7507,
+      "phase": 35,
+      "policy_argmax_agreement": 0.5532,
+      "replay_uncompressed_sha256": "2c8f533cce3b65ac10ece8c995abfeca5dab07d8c5f7e211f5fde3ab670c85ac",
+      "rows": 49152,
+      "teacher_kl_nats": 1.5833,
+      "winner_argmax_vs_sampled_action": 0.579
+    },
+    {
+      "Total Timesteps": 28739232,
+      "loser_argmax_vs_sampled_action": 0.7463,
+      "phase": 36,
+      "policy_argmax_agreement": 0.5488,
+      "replay_uncompressed_sha256": "7d539debcebca7aaa900697f75a20c5b8acd9535d98d8b02605b4029f62e5b5d",
+      "rows": 49152,
+      "teacher_kl_nats": 1.5875,
+      "winner_argmax_vs_sampled_action": 0.5842
+    },
+    {
+      "Total Timesteps": 29741472,
+      "loser_argmax_vs_sampled_action": 0.7563,
+      "phase": 37,
+      "policy_argmax_agreement": 0.5544,
+      "replay_uncompressed_sha256": "4d70287900930d329b294f3904fc742d87064b9048bb1e70eeb285ec8075d31c",
+      "rows": 49152,
+      "teacher_kl_nats": 1.6065,
+      "winner_argmax_vs_sampled_action": 0.5809
+    },
+    {
+      "Total Timesteps": 30743712,
+      "loser_argmax_vs_sampled_action": 0.7523,
+      "phase": 38,
+      "policy_argmax_agreement": 0.5533,
+      "replay_uncompressed_sha256": "bed03e413d7d8d86f6520bca9abda6d1eedc9fbebd09e2c08c1a869da3656739",
+      "rows": 49152,
+      "teacher_kl_nats": 1.6458,
+      "winner_argmax_vs_sampled_action": 0.5867
+    },
+    {
+      "Total Timesteps": 31745952,
+      "loser_argmax_vs_sampled_action": 0.7592,
+      "phase": 39,
+      "policy_argmax_agreement": 0.5609,
+      "replay_uncompressed_sha256": "af28984fbd8c1ed7f09e038023adc2a22cd16083aeef8c7f1d5e07715a6a0449",
+      "rows": 49152,
+      "teacher_kl_nats": 1.616,
+      "winner_argmax_vs_sampled_action": 0.5844
+    }
+  ],
+  "precision": "four decimal places",
+  "teacher_actor_sha256": {
+    "POLICY.lt": "8eae11b32a4d4b77c20a8fac3f5380936416d67149ed1a3094fd384bf707598e",
+    "SHARED_HEAD.lt": "853aa31b05d077c93055aa5c625bbf823750e6b03bfcc94dbf00f17d449eb266",
+    "SHARED_HEAD_SLOTS.lt": "e9d9b84ad3554839cc3b6b9150454180582b3cc1e08c9228666a4adb3d63c61c"
+  },
+  "teacher_checkpoint": "training-backup/learner/7178045919"
+}

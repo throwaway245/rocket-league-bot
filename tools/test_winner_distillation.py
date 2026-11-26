@@ -86,10 +86,25 @@ class WinnerDistillationTest(unittest.TestCase):
                              '--distill-teacher-rollout', '0', '--distill-replay-in', str(replay),
                              '--distill-replay-weight', '1', '--distill-eval', '--no-metrics', '--seed', '99'])
             self.assertIn('Transfer Replay Action Agreement:', evaluated.stdout)
+            self.assertIn('Transfer Replay Policy Argmax Agreement:', evaluated.stdout)
+            self.assertIn('Transfer Replay Teacher Action Agreement:', evaluated.stdout)
+            self.assertIn('Transfer Replay Teacher KL:', evaluated.stdout)
             self.assertIn('Transfer Replay Rows:', evaluated.stdout)
             self.assertNotIn('Old Policy Entropy:', evaluated.stdout)
             self.assertEqual(before_eval, digest(newest / 'POLICY.lt'))
             self.assertEqual(replay_hash, digest(replay))
+            # Identical policies must agree on argmax on every replay row and have zero KL.
+            small_candidate = out / 'small'
+            shutil.copytree(SMALL, small_candidate / '0')
+            identical = run([str(BOT), '--model', 's', '--distill-teacher', str(SMALL),
+                             '--checkpoints', str(small_candidate), '--device', 'cpu', '--threads', '2',
+                             '--games', '11', '--modes', '1v1', '--distill-batch', '72', '--distill-epochs', '1',
+                             '--distill-teacher-rollout', '0', '--distill-replay-in', str(replay),
+                             '--distill-replay-weight', '1', '--distill-eval', '--distill-new-teacher',
+                             '--distill-small-candidate', '--no-metrics', '--seed', '99'])
+            self.assertIn('Transfer Replay Policy Argmax Agreement: 1', identical.stdout)
+            self.assertIn('Transfer Replay Teacher KL: 0', identical.stdout)
+            self.assertEqual(small_before, digest(small_candidate / '0' / 'POLICY.lt'))
             # This policy is not permitted to enter PPO.
             run([str(BOT), '--model', 'foundation-policy-v1', '--checkpoints', str(candidate),
                  '--device', 'cpu', '--no-metrics', '--max-timesteps', '1000'], success=False)
