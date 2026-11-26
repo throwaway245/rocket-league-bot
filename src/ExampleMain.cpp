@@ -1419,6 +1419,7 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "eval-finish-games", NULL, "Evaluation: when the game time is up, let the running kickoffs finish instead of dropping them (needs one of the two limits above)" },
 	{ "eval-winner-traces", "", "Save sampled winning-side actions from five-minute regulation matches; tied matches are discarded" },
 	{ "eval-single-match", NULL, "Play exactly one five-minute match in one mode for game-by-game winner distillation; seed parity swaps sides" },
+	{ "eval-winner-policy-targets", NULL, "Also save winning policy distributions for the recorded actions/states; only during isolated winner matches" },
 	{ "eval-tactical-restart-prob", "0", "Winner-trace games: probability of a seeded tactical restart instead of a kickoff, 0 to 1" },
 	{ "eval-out", "", "Also write the evaluation results to this JSON file" },
 	{ "deterministic", NULL, "Evaluation: always pick the most likely action instead of sampling" },
@@ -2663,6 +2664,7 @@ EvalResult EvaluateMode(
 						if (t.actions.size() >= 4096) continue;
 						t.observations.insert(t.observations.end(), batchTrace.observations.begin() + k * obsSize, batchTrace.observations.begin() + (k + 1) * obsSize);
 						t.actionMasks.insert(t.actionMasks.end(), batchTrace.actionMasks.begin() + k * numActions, batchTrace.actionMasks.begin() + (k + 1) * numActions);
+						t.actionProbabilities.insert(t.actionProbabilities.end(), batchTrace.actionProbabilities.begin() + k * numActions, batchTrace.actionProbabilities.begin() + (k + 1) * numActions);
 						t.actions.push_back(batchTrace.actions[k]);
 					}
 				}
@@ -2776,6 +2778,7 @@ EvalResult EvaluateMode(
 						if (dest.actions.size() < 32768) {
 							dest.observations.insert(dest.observations.end(), source.observations.begin() + k * obsSize, source.observations.begin() + (k + 1) * obsSize);
 							dest.actionMasks.insert(dest.actionMasks.end(), source.actionMasks.begin() + k * numActions, source.actionMasks.begin() + (k + 1) * numActions);
+							dest.actionProbabilities.insert(dest.actionProbabilities.end(), source.actionProbabilities.begin() + k * numActions, source.actionProbabilities.begin() + (k + 1) * numActions);
 							dest.actions.push_back(source.actions[k]);
 						} else {
 							// Uniform bounded reservoir avoids over-representing early games.
@@ -2783,6 +2786,7 @@ EvalResult EvaluateMode(
 							if (slot >= 32768) continue;
 							std::copy_n(source.observations.begin() + k * obsSize, obsSize, dest.observations.begin() + slot * obsSize);
 							std::copy_n(source.actionMasks.begin() + k * numActions, numActions, dest.actionMasks.begin() + slot * numActions);
+							std::copy_n(source.actionProbabilities.begin() + k * numActions, numActions, dest.actionProbabilities.begin() + slot * numActions);
 							dest.actions[slot] = source.actions[k];
 						}
 					}
@@ -2819,8 +2823,8 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 		(tacticalRestartProb > 0.f && opt.Str("eval-winner-traces").empty()))
 		RG_ERR_CLOSE("Tactical restarts require winner traces and a probability between 0 and 1");
 	bool singleMatch = opt.Has("eval-single-match");
-	if (singleMatch && opt.Str("eval-winner-traces").empty())
-		RG_ERR_CLOSE("--eval-single-match requires winner traces");
+	if ((singleMatch || opt.Has("eval-winner-policy-targets")) && opt.Str("eval-winner-traces").empty())
+		RG_ERR_CLOSE("Single matches and policy targets require winner traces");
 	int numArenas = singleMatch ? 1 : RS_MAX((int)opt.Int("eval-arenas"), 2);
 	if (!singleMatch) numArenas += numArenas % 2; // Side-balanced ordinary evaluation
 	// A positive budget shorter than regulation prevents starting a second match.
@@ -2890,6 +2894,8 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 				if (trace.actions.empty()) continue;
 				auto path = traceDir / (ModeName(teamSize) + (side == 0 ? "-winner-a.pt" : "-winner-b.pt"));
 				InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), path);
+				if (opt.Has("eval-winner-policy-targets"))
+					InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), traceDir / (ModeName(teamSize) + (side == 0 ? "-winner-a-policy.pt" : "-winner-b-policy.pt")), true);
 				auto& combined = combinedWinnerTraces[side];
 				int obsSize = unitA->obsSize, numActions = unitA->actionParser->GetActionAmount();
 				// Spread bounded samples across all completed matches instead of retaining
@@ -2899,6 +2905,7 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 					size_t k = i * trace.actions.size() / count;
 					combined.observations.insert(combined.observations.end(), trace.observations.begin() + k * obsSize, trace.observations.begin() + (k + 1) * obsSize);
 					combined.actionMasks.insert(combined.actionMasks.end(), trace.actionMasks.begin() + k * numActions, trace.actionMasks.begin() + (k + 1) * numActions);
+					combined.actionProbabilities.insert(combined.actionProbabilities.end(), trace.actionProbabilities.begin() + k * numActions, trace.actionProbabilities.begin() + (k + 1) * numActions);
 					combined.actions.push_back(trace.actions[k]);
 				}
 				RG_LOG("Winner trace " << path << ": " << trace.actions.size() << " sampled actions from winning regulation matches");
@@ -2911,8 +2918,11 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	if (!traceDir.empty()) {
 		for (int side = 0; side < 2; side++) {
 			const auto& trace = combinedWinnerTraces[side];
-			if (!trace.actions.empty())
+			if (!trace.actions.empty()) {
 				InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), traceDir / (side == 0 ? "winner-a.pt" : "winner-b.pt"));
+				if (opt.Has("eval-winner-policy-targets"))
+					InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), traceDir / (side == 0 ? "winner-a-policy.pt" : "winner-b-policy.pt"), true);
+			}
 		}
 	}
 

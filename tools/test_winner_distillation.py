@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -55,11 +56,13 @@ class WinnerDistillationTest(unittest.TestCase):
             self.assertEqual(tactical['match_wins_a'] + tactical['match_wins_b'] + tactical['match_draws'], 2)
             single_result = out / 'single.json'
             run([str(BOT), '--eval', str(SMALL), '--vs', str(LARGE), '--eval-modes', '1v1',
-                 '--eval-single-match', '--seed', '2049001', '--threads', '2',
+                 '--eval-single-match', '--seed', '2049001', '--threads', '2', '--eval-winner-policy-targets',
                  '--eval-winner-traces', str(out / 'single-traces'), '--eval-out', str(single_result)])
             single = json.loads(single_result.read_text())
             self.assertEqual(single['match_wins_a'] + single['match_wins_b'] + single['match_draws'], 1)
             self.assertEqual(single['num_arenas'], 1)
+            self.assertEqual(single['match_wins_a'], 1)
+            self.assertTrue((out / 'single-traces' / 'winner-a-policy.pt').is_file())
             replay = traces / 'winner-a.pt'
             replay_hash = digest(replay)
             history_dir = out / 'history'
@@ -111,6 +114,17 @@ class WinnerDistillationTest(unittest.TestCase):
                              '--distill-small-candidate', '--no-metrics', '--seed', '99'])
             self.assertIn('Transfer Replay Policy Argmax Agreement: 1', identical.stdout)
             self.assertIn('Transfer Replay Teacher KL: 0', identical.stdout)
+            policy_replay = out / 'single-traces' / 'winner-a-policy.pt'
+            policy_eval = run([str(BOT), '--model', 's', '--distill-teacher', str(SMALL),
+                               '--checkpoints', str(small_candidate), '--device', 'cpu', '--threads', '2',
+                               '--games', '11', '--modes', '1v1', '--distill-batch', '72', '--distill-epochs', '1',
+                               '--distill-teacher-rollout', '0', '--distill-replay-in', str(policy_replay),
+                               '--distill-replay-weight', '1', '--distill-eval', '--distill-new-teacher',
+                               '--distill-small-candidate', '--no-metrics', '--seed', '99'])
+            self.assertIn('Transfer Replay Policy Argmax Agreement: 1', policy_eval.stdout)
+            replay_kl = re.search(r'^Transfer Replay KL: ([\deE+.-]+)$', policy_eval.stdout, re.MULTILINE)
+            self.assertIsNotNone(replay_kl)
+            self.assertLess(abs(float(replay_kl.group(1))), 1e-6)
             self.assertEqual(small_before, digest(small_candidate / '0' / 'POLICY.lt'))
             # This policy is not permitted to enter PPO.
             run([str(BOT), '--model', 'foundation-policy-v1', '--checkpoints', str(candidate),
