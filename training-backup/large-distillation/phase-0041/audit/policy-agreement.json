@@ -1,0 +1,37 @@
+{
+  "Total Timesteps": 31766832,
+  "training_game_policy_agreement": {
+    "mode": "2v2",
+    "rows": 1800,
+    "policy_argmax_agreement": 0.5061,
+    "teacher_kl_nats": 1.6114
+  },
+  "heldout_monitor": {
+    "dataset": "same phase-39 standard match observations; not used in training; repeated monitoring means not independent for final selection",
+    "modes": {
+      "1v1": {
+        "rows": 10800,
+        "policy_argmax_agreement": 0.5004,
+        "teacher_kl_nats": 1.5895
+      },
+      "2v2": {
+        "rows": 21600,
+        "policy_argmax_agreement": 0.4758,
+        "teacher_kl_nats": 1.7117
+      },
+      "3v3": {
+        "rows": 32400,
+        "policy_argmax_agreement": 0.4485,
+        "teacher_kl_nats": 1.693
+      }
+    },
+    "baseline_phase_39": {
+      "1v1": 0.496,
+      "2v2": 0.477,
+      "3v3": 0.4515
+    }
+  },
+  "candidate_promoted": false,
+  "reason": "candidate not independently strength-validated; small heldout 2v2 and 3v3 agreement regressions",
+  "reverse_direction": "not applicable, small won"
+}
