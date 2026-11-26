@@ -7,7 +7,7 @@ Native C++ PPO training and RLBot integration for a single shared policy (`s`, l
 Small-model training and foundation distillation are paused. See [DISTILLATION.md](DISTILLATION.md).
 
 - **Canonical snapshot:** [`training-backup/`](training-backup/) (`status: paused`, SHA-256 verified via `training-backup/manifest.json`).
-- **Latest resumable learner checkpoint:** `training-backup/learner/7058101983/`, including policy, critic, shared head, optimizer states and running stats; the active reward override is experimental v8.
+- **Latest resumable learner checkpoint:** `training-backup/learner/7178045919/`, including policy, critic, shared head, optimizer states and running stats; the active reward override is experimental v8.
 - **Selected best checkpoint:** `training-backup/best/6898483167/`, with screen `1961.04` and confirmation `1959.82` against the evolving campaign pool. These ratings are not a held-out audit.
 - **Distillation teacher:** `training-backup/best/5163287775/` is retained separately to preserve the existing student's teacher contract.
 - **Metrics & backups:** Training writes local JSONL metrics; all training-time W&B logging is temporarily disabled. Optional checkpoint backups are separate from telemetry.
