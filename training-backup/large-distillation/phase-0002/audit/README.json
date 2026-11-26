@@ -1,0 +1,9 @@
+{
+  "protocol": "side-balanced first-goal kickoff evaluation, not full matches",
+  "seed": 20271219,
+  "candidate_promoted": false,
+  "files": {
+    "audit-phase2-current.json": "6b76e841afbb0f629d6fa0eb4d3944e0d31210d448ca82d5f803011be39b3d7b",
+    "audit-phase2-old.json": "683458598dbd6df95f9492df2d317a772b030e6857dc63c0330c74881ec5b9ce"
+  }
+}
