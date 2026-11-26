@@ -639,9 +639,11 @@ void GGL::PPOLearner::TransferLearn(
 	if (!transferReplayInitialized) {
 		transferReplayInitialized = true;
 		if (!tlConfig.replayInput.empty()) {
-			torch::load(transferReplay, tlConfig.replayInput.string());
-			TORCH_CHECK(transferReplay.size() == 3, "Replay must contain observations, masks, and teacher probabilities");
-			auto& obs = transferReplay[0]; auto& mask = transferReplay[1]; auto& probs = transferReplay[2];
+			auto loadShard = [&](const std::filesystem::path& path) {
+				std::vector<torch::Tensor> shard;
+				torch::load(shard, path.string());
+				TORCH_CHECK(shard.size() == 3, "Replay must contain observations, masks, and probabilities");
+				auto& obs = shard[0]; auto& mask = shard[1]; auto& probs = shard[2];
 			TORCH_CHECK(obs.dim() == 2 && mask.dim() == 2 && probs.dim() == 2 && obs.size(0) > 0 &&
 				obs.size(0) == mask.size(0) && obs.size(0) == probs.size(0) &&
 				obs.size(1) == newObs.size(1) && mask.size(1) == newActionMasks.size(1) &&
@@ -651,6 +653,16 @@ void GGL::PPOLearner::TransferLearn(
 				torch::allclose(probs.sum(-1), torch::ones({probs.size(0)}, probs.options()), 1e-4, 1e-4) &&
 				(probs.masked_select(mask == 0).abs() < 1e-6).all().item<bool>() &&
 				(mask.to(torch::kFloat32).sum(-1) > 0).all().item<bool>(), "Invalid replay values or action masks");
+				TORCH_CHECK(obs.size(0) <= 100'000, "Replay shard exceeds memory limit");
+				return shard;
+			};
+			transferReplay = loadShard(tlConfig.replayInput);
+			if (!tlConfig.replayHistory.empty()) {
+				auto history = loadShard(tlConfig.replayHistory);
+				for (size_t i = 0; i < transferReplay.size(); i++)
+					transferReplay[i] = torch::cat({transferReplay[i], history[i]}, 0);
+			}
+			RG_LOG("Loaded " << transferReplay[0].size(0) << " winner replay observations");
 			for (auto& tensor : transferReplay) tensor = tensor.to(device);
 		}
 		if (!tlConfig.replayOutput.empty()) {

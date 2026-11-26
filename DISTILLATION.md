@@ -35,13 +35,18 @@ Winner trace capture uses five-minute simulated regulation matches, resets kicko
 goals without resetting the match score, and discards tied and unfinished matches.
 It samples actions from the winning side only, with action masks and matching mirrored
 observations. With replay weight 1 and teacher rollout 0, transfer updates are based solely
-on recorded winner actions; no fresh teacher probabilities are queried. Replay is imitation,
-not PPO. These experimental paths require native regression tests and independent validation;
+on recorded winner actions; no fresh teacher probabilities are queried. `--distill-replay-history`
+optionally mixes a second immutable compatible shard with the current one, bounded to
+100,000 observations per shard. Each replay row is sampled uniformly from the combined
+shards. Phase backups can include a gzip-compressed, SHA-256-verified winner replay;
+decompress it to an isolated working directory before using it for retention. Replay is
+imitation, not PPO. These experimental paths require native regression tests and independent validation;
 no candidate should be promoted automatically. Each completed distillation phase must be
 verified, saved under `training-backup/large-distillation/`, committed, and pushed before
 another phase starts. Run `tools/backup_distillation_phase.py CHECKPOINT --phase N
---match-results RESULTS.json` to create a non-overwriting phase directory containing
-weights, optimizer state, match evidence, and SHA-256 checksums. Commit and push it on
+--match-results RESULTS.json --winner-replay REPLAY.pt` to create a non-overwriting phase
+directory containing weights, optimizer state, match evidence, compressed replay, and
+SHA-256 checksums. Commit and push it on
 the current branch; the helper intentionally does not run Git. `Total Timesteps` counts
 student rollout observations, not unique replay actions or PPO steps.
 

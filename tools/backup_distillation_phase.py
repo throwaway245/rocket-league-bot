@@ -5,6 +5,7 @@ This only prepares the backup. The operator must commit and push the phase befor
 starting the next one; it deliberately does not supervise training or invoke Git.
 """
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -26,7 +27,7 @@ def sha(path):
         return digest.hexdigest()
 
 
-def save_phase(checkpoint, phase, match_results):
+def save_phase(checkpoint, phase, match_results, winner_replay=None):
     checkpoint = checkpoint.resolve(strict=True)
     if phase < 0:
         raise ValueError('phase must be nonnegative')
@@ -59,8 +60,22 @@ def save_phase(checkpoint, phase, match_results):
             hashes[name] = sha(dst)
             if hashes[name] != sha(src):
                 raise IOError(f'verification failed: {name}')
+        replay_metadata = None
+        if winner_replay:
+            winner_replay = winner_replay.resolve(strict=True)
+            replay_path = stage / 'winner-replay.pt.gz'
+            with winner_replay.open('rb') as src, replay_path.open('wb') as raw:
+                with gzip.GzipFile(filename='', mode='wb', compresslevel=1, fileobj=raw, mtime=0) as dst:
+                    shutil.copyfileobj(src, dst)
+            decoded_hash = hashlib.sha256()
+            with gzip.open(replay_path, 'rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''):
+                    decoded_hash.update(block)
+            if decoded_hash.hexdigest() != sha(winner_replay):
+                raise IOError('winner replay verification failed')
+            replay_metadata = {'compressed_sha256': sha(replay_path), 'uncompressed_sha256': decoded_hash.hexdigest()}
         manifest = {'phase': phase, 'Total Timesteps': stats['total_timesteps'], 'total_timesteps': stats['total_timesteps'],
-                    'model': info['model'], 'checkpoint_sha256': hashes,
+                    'model': info['model'], 'checkpoint_sha256': hashes, 'winner_replay': replay_metadata,
                     'match_results': json.loads(match_results.read_text()) if match_results else None}
         (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
         os.rename(stage, target)
@@ -72,8 +87,9 @@ def main():
     parser.add_argument('checkpoint', type=Path)
     parser.add_argument('--phase', type=int, required=True)
     parser.add_argument('--match-results', type=Path)
+    parser.add_argument('--winner-replay', type=Path, help='Compress and verify immutable winning-action replay for retention')
     args = parser.parse_args()
-    print(save_phase(args.checkpoint, args.phase, args.match_results))
+    print(save_phase(args.checkpoint, args.phase, args.match_results, args.winner_replay))
 
 
 if __name__ == '__main__':

@@ -52,10 +52,11 @@ class WinnerDistillationTest(unittest.TestCase):
                      '--checkpoints', str(candidate), '--device', 'cpu', '--threads', '2', '--games', '11',
                      '--modes', '1v1,2v2,3v3', '--mode-balance', 'players', '--distill-batch', '72',
                      '--distill-epochs', '1', '--distill-teacher-rollout', '0', '--distill-new-teacher',
-                     '--distill-replay-in', str(replay), '--distill-replay-weight', '1',
+                     '--distill-replay-in', str(replay), '--distill-replay-history', str(replay), '--distill-replay-weight', '1',
                      '--max-timesteps', '72', '--no-metrics', '--seed', '99']
             trained = run(train)
             self.assertIn('Transfer Replay KL', trained.stdout)
+            self.assertIn('winner replay observations', trained.stdout)
             self.assertNotIn('Old Policy Entropy:', trained.stdout)
             self.assertEqual(replay_hash, digest(replay))
             self.assertEqual(small_before, digest(SMALL / 'POLICY.lt'))

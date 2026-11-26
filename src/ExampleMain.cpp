@@ -1372,6 +1372,7 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "distill-new-teacher", NULL, "Explicitly permit changing the teacher of an existing student" },
 	{ "distill-small-candidate", NULL, "Allow isolated s-model distillation candidates (never the live learner)" },
 	{ "distill-replay-in", "", "Read an immutable compatible replay shard" },
+	{ "distill-replay-history", "", "Mix one compatible previous replay shard for retention" },
 	{ "distill-replay-out", "", "Save the first labeled batch as a new replay shard; never overwrite" },
 	{ "distill-replay-weight", "0", "Fraction of KL loss from historical replay, between 0 and 1" },
 	{ "run-name", "gigalearncpp-run", "Run name for the metrics receiver" },
@@ -2091,6 +2092,8 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 			RG_ERR_CLOSE("Invalid distillation batch, epochs, rollout or replay settings");
 		if (!opt.Str("distill-replay-in").empty() && !std::filesystem::is_regular_file(opt.Str("distill-replay-in")))
 			RG_ERR_CLOSE("Distillation replay input does not exist");
+		if (!opt.Str("distill-replay-history").empty() && (opt.Str("distill-replay-in").empty() || !std::filesystem::is_regular_file(opt.Str("distill-replay-history"))))
+			RG_ERR_CLOSE("Historical replay requires a valid current and historical shard");
 		if (!opt.Str("distill-replay-out").empty() && std::filesystem::exists(opt.Str("distill-replay-out")))
 			RG_ERR_CLOSE("Refusing to overwrite distillation replay");
 		if (opt.Has("distill-eval") && FindNewestCheckpoint(opt.Str("checkpoints")).empty())
@@ -2445,6 +2448,7 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 		transfer.lossScale = 90.f; // KL was averaged over 90 actions
 		transfer.evaluationOnly = opt.Has("distill-eval");
 		transfer.replayInput = opt.Str("distill-replay-in");
+		transfer.replayHistory = opt.Str("distill-replay-history");
 		transfer.replayOutput = opt.Str("distill-replay-out");
 		transfer.replayWeight = (float)opt.Num("distill-replay-weight");
 		RG_LOG("Distilling teacher " << teacherPath << " into " << student.name << "; teacher rollout " << transfer.teacherRolloutChance);
