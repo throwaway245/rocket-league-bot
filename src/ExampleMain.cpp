@@ -2859,10 +2859,15 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 				InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), path);
 				auto& combined = combinedWinnerTraces[side];
 				int obsSize = unitA->obsSize, numActions = unitA->actionParser->GetActionAmount();
-				size_t count = std::min<size_t>(trace.actions.size(), 4096); // bound each mode's influence
-				combined.observations.insert(combined.observations.end(), trace.observations.begin(), trace.observations.begin() + count * obsSize);
-				combined.actionMasks.insert(combined.actionMasks.end(), trace.actionMasks.begin(), trace.actionMasks.begin() + count * numActions);
-				combined.actions.insert(combined.actions.end(), trace.actions.begin(), trace.actions.begin() + count);
+				// Spread bounded samples across all completed matches instead of retaining
+				// only the first arenas. This matters when a phase runs many games.
+				size_t count = std::min<size_t>(trace.actions.size(), 16384);
+				for (size_t i = 0; i < count; i++) {
+					size_t k = i * trace.actions.size() / count;
+					combined.observations.insert(combined.observations.end(), trace.observations.begin() + k * obsSize, trace.observations.begin() + (k + 1) * obsSize);
+					combined.actionMasks.insert(combined.actionMasks.end(), trace.actionMasks.begin() + k * numActions, trace.actionMasks.begin() + (k + 1) * numActions);
+					combined.actions.push_back(trace.actions[k]);
+				}
 				RG_LOG("Winner trace " << path << ": " << trace.actions.size() << " sampled actions from winning regulation matches");
 			}
 		}

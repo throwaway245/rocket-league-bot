@@ -34,7 +34,8 @@ original until inference and resumed-distillation equivalence are validated.
 Winner trace capture uses five-minute simulated regulation matches, resets kickoffs after
 goals without resetting the match score, and discards tied and unfinished matches.
 It samples actions from the winning side only, with action masks and matching mirrored
-observations. With replay weight 1 and teacher rollout 0, transfer updates are based solely
+observations. Combined replay retains at most 16,384 samples per mode, spaced across
+captured trajectories rather than taking only the first arenas. With replay weight 1 and teacher rollout 0, transfer updates are based solely
 on recorded winner actions; no fresh teacher probabilities are queried. `--distill-replay-history`
 optionally mixes a second immutable compatible shard with the current one.
 `--distill-replay-history-dir` can additionally mix 1–8 `.pt` shards from a directory.
