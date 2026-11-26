@@ -2848,7 +2848,7 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 				combined.observations.insert(combined.observations.end(), trace.observations.begin(), trace.observations.begin() + count * obsSize);
 				combined.actionMasks.insert(combined.actionMasks.end(), trace.actionMasks.begin(), trace.actionMasks.begin() + count * numActions);
 				combined.actions.insert(combined.actions.end(), trace.actions.begin(), trace.actions.begin() + count);
-				RG_LOG("Winner trace " << path << ": " << trace.actions.size() << " sampled actions from goal-ending kickoffs");
+				RG_LOG("Winner trace " << path << ": " << trace.actions.size() << " sampled actions from winning regulation matches");
 			}
 		}
 		result.sideA.name = nameA;

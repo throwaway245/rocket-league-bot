@@ -222,6 +222,7 @@ class RestoreTests(unittest.TestCase):
         train_ranked.validate_rewards('v6')
         train_ranked.validate_rewards('v7')
         train_ranked.validate_rewards('v8')
+        train_ranked.validate_rewards('v9')
         train_ranked.validate_rewards('Goal=750,Save=30')
         for bad in ('v999', 'Goal=750,NotAReward=2', 'Goal=750,garbage'):
             with self.assertRaises(ValueError):

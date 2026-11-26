@@ -39,7 +39,8 @@ namespace RLGC {
 		DimList2<float> obs;
 		DimList2<uint8_t> actionMasks;
 		std::vector<float> rewards;
-		std::vector<std::vector<float>> lastRewards; // Only from the first arena
+		std::vector<std::vector<float>> lastRewards; // Raw sampled reward (inner reward for wrappers)
+		std::vector<std::vector<float>> lastAppliedRewards; // Weighted, post-wrapper sampled reward
 		std::vector<uint8_t> terminals;
 
 		std::vector<int> arenaPlayerStartIdx = {};
@@ -56,6 +57,7 @@ namespace RLGC {
 			prevGameStates.resize(arenas.size());
 			rewards.resize(numPlayers);
 			lastRewards.resize(arenas.size());
+			lastAppliedRewards.resize(arenas.size());
 			terminals.resize(arenas.size());
 		}
 	};

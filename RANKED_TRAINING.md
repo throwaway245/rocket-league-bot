@@ -396,3 +396,18 @@ RLGym-Sim's Python `player_ball_rewards.py`; neither pays for airborne time
 alone. These are incentives, not proof of learned aerials or wavedashes, and can
 still be gamed. Inspect per-term metrics and held-out matches before concluding
 that they improve play. Earlier v7/v6 presets leave both new terms at zero.
+
+### v9 and applied-reward diagnostics
+
+v9 keeps v8's goal, defensive and mechanics signals while gradually reducing
+`NearestVelocityToBall` (0.15 to 0.12), `TouchAccel` (4 to 3), `TeamSpacing`
+(0.35 to 0.30), and `DoubleCommit` (0.6 to 0.5). Recent raw sampled rewards
+showed persistent approach and spacing signals, but this is a conservative
+experiment, not evidence that v9 is stronger. Existing `Rewards/` metrics are
+unweighted, and for zero-sum wrappers represent the inner reward, not the
+reward applied to the policy. With reward sampling enabled, `Applied Rewards/`
+now records the weighted post-wrapper sample and `Abs Applied Rewards/` its
+absolute value before averaging. Absolute samples reveal signal magnitude even
+when zero-sum values cancel; they are not causal attribution, and terms sampled
+independently do not necessarily add up to the total step reward. Evaluate
+against the frozen pool before selecting a checkpoint.
