@@ -625,7 +625,7 @@ void GGL::PPOLearner::TransferLearn(
 	const TransferLearnConfig& tlConfig
 ) {
 
-	const bool replayOnly = tlConfig.replayWeight == 1.f && !tlConfig.replayInput.empty() && !tlConfig.evaluationOnly;
+	const bool replayOnly = tlConfig.replayWeight == 1.f && !tlConfig.replayInput.empty();
 	torch::Tensor oldProbs;
 	if (!replayOnly) { // Replay-only winner cloning never queries a teacher for labels.
 		RG_NO_GRAD;
@@ -677,6 +677,27 @@ void GGL::PPOLearner::TransferLearn(
 		}
 	}
 
+	// Evaluate every stored winner action once, without optimization or teacher inference.
+	// Winner trace targets are one-hot sampled actions, not teacher argmax labels.
+	if (tlConfig.evaluationOnly && replayOnly) {
+		RG_NO_GRAD;
+		int64_t matches = 0, count = transferReplay[0].size(0);
+		double klSum = 0;
+		for (int64_t start = 0; start < count; start += 1024) {
+			int64_t end = std::min(start + int64_t(1024), count);
+			auto obs = transferReplay[0].slice(0, start, end);
+			auto masks = transferReplay[1].slice(0, start, end);
+			auto targets = transferReplay[2].slice(0, start, end);
+			auto current = InferPolicyProbsFromModels(models, obs, masks, config.policyTemperature, false);
+			matches += (current.argmax(-1) == targets.argmax(-1)).sum().item<int64_t>();
+			klSum += (targets * (targets.clamp_min(1e-12).log() - current.clamp_min(1e-12).log())).sum().item<double>();
+		}
+		report["Transfer Replay Action Agreement"] = double(matches) / count;
+		report["Transfer Replay Rows"] = count;
+		report["Transfer Replay KL"] = klSum / count;
+		return;
+	}
+
 	for (auto& model : GetPolicyModels())
 		model->SetOptimLR(tlConfig.lr);
 
@@ -706,6 +727,7 @@ void GGL::PPOLearner::TransferLearn(
 			auto replayKL = (targets * (targets.clamp_min(1e-12).log() - current.clamp_min(1e-12).log())).sum(-1).mean();
 			transferLearnLoss = replayOnly ? replayKL : transferLearnLoss * (1.f - tlConfig.replayWeight) + replayKL * tlConfig.replayWeight;
 			report["Transfer Replay KL"] = replayKL.detach().cpu().item<float>();
+			report["Transfer Replay Action Agreement"] = (current.detach().argmax(-1) == targets.argmax(-1)).to(torch::kFloat).mean().item<float>();
 		}
 
 		if (i == 0 && !replayOnly) {

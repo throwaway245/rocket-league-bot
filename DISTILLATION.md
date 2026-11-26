@@ -112,6 +112,15 @@ student-controlled rollouts, and test each mode separately. `Transfer KL` is mea
 KL(teacher || student) in nats; `Transfer Learn Accuracy` is argmax agreement. Both are on the
 collected batch before updates, not independent proof of competitive strength.
 
+For winner-action distillation, run `--distill-eval --distill-replay-in SHARD
+--distill-replay-weight 1` against the saved loser candidate after each phase. `Transfer Replay
+Action Agreement` is the fraction of **all** rows whose loser-policy argmax equals the winner's
+recorded, sampled action; `Transfer Replay Rows` is its denominator. Run separately for each mode
+and each winner-to-loser direction actually trained. These are training-shard measurements, not
+held-out agreement or evidence of match parity. During training the same agreement is a sampled
+minibatch metric, not a full-shard post-update measurement. The evaluation does not update or save
+weights. A reverse-direction metric is not applicable if the large model won no games.
+
 ## Promotion gate
 
 Do not describe a student as equally strong until both tests pass:

@@ -584,7 +584,7 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 			if (saveQueued || quitRequested || (config.maxTimesteps && totalTimesteps >= config.maxTimesteps) || tlConfig.evaluationOnly) {
 				report.Finish();
 				if (metricSender) metricSender->Send(report);
-				report.Display({ "Transfer Learn Accuracy", "Transfer Learn Loss", "Transfer KL", "Transfer Replay KL", "Transfer Teacher Rollout", "Total Timesteps" });
+				report.Display({ "Transfer Learn Accuracy", "Transfer Learn Loss", "Transfer KL", "Transfer Replay KL", "Transfer Replay Action Agreement", "Transfer Replay Rows", "Transfer Teacher Rollout", "Total Timesteps" });
 				if (!tlConfig.evaluationOnly && !config.checkpointFolder.empty()) Save();
 				return;
 			}
@@ -616,6 +616,7 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 					"Transfer Learn Loss",
 					"Transfer KL",
 					"Transfer Replay KL",
+					"Transfer Replay Action Agreement",
 					"Transfer Teacher Rollout",
 					"",
 					"Policy Entropy",
