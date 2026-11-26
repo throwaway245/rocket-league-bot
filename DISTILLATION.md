@@ -36,7 +36,11 @@ goals without resetting the match score, and discards tied and unfinished matche
 It samples actions from the winning side only, with action masks and matching mirrored
 observations. The per-side trajectory collector samples every five simulation decisions
 and uses bounded reservoir sampling across completed winning matches. Combined replay
-retains at most 16,384 samples per mode. With replay weight 1 and teacher rollout 0, transfer updates are based solely
+retains at most 16,384 samples per mode. For extra training-data variety,
+`--eval-tactical-restart-prob` opts match capture into seeded tactical resets on a
+fraction of restarts; the five-minute winning side is still the only source of labels.
+These nonstandard games are not comparable to ordinary full matches and must never be
+used as the sole strength or promotion evaluation. Standard evaluation uses probability 0. With replay weight 1 and teacher rollout 0, transfer updates are based solely
 on recorded winner actions; no fresh teacher probabilities are queried. `--distill-replay-history`
 optionally mixes a second immutable compatible shard with the current one.
 `--distill-replay-history-dir` can additionally mix 1–8 `.pt` shards from a directory.

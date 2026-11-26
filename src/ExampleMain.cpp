@@ -1418,6 +1418,7 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "eval-max-seconds", "0", "Evaluation: restart with a kickoff after this many seconds without a goal, 0 = never" },
 	{ "eval-finish-games", NULL, "Evaluation: when the game time is up, let the running kickoffs finish instead of dropping them (needs one of the two limits above)" },
 	{ "eval-winner-traces", "", "Save sampled winning-side actions from five-minute regulation matches; tied matches are discarded" },
+	{ "eval-tactical-restart-prob", "0", "Winner-trace games: probability of a seeded tactical restart instead of a kickoff, 0 to 1" },
 	{ "eval-out", "", "Also write the evaluation results to this JSON file" },
 	{ "deterministic", NULL, "Evaluation: always pick the most likely action instead of sampling" },
 
@@ -2546,7 +2547,7 @@ InferUnit* MakeInferUnit(const Options& opt, std::filesystem::path checkpointPat
 //	the time each arena gets.
 EvalResult EvaluateMode(
 	int teamSize, InferUnit* unitA, InferUnit* unitB, ActionParser* actionParser,
-	int numArenas, double gameMinutes, bool deterministic, float noTouchTimeout, float maxSeconds, bool finishGames, std::mt19937& randEngine, bool captureWinners = false) {
+	int numArenas, double gameMinutes, bool deterministic, float noTouchTimeout, float maxSeconds, bool finishGames, std::mt19937& randEngine, bool captureWinners = false, float tacticalRestartProb = 0.f) {
 
 	if (captureWinners)
 		finishGames = true; // Finish regulation, even when the aggregate time budget expires.
@@ -2574,6 +2575,7 @@ EvalResult EvaluateMode(
 
 	auto startTime = std::chrono::steady_clock::now();
 
+	TacticalStateSetter tacticalSetter;
 	int numActive = numArenas;
 	while (numActive > 0) {
 		bool timeUp = (gameSteps >= targetGameSteps);
@@ -2591,7 +2593,13 @@ EvalResult EvaluateMode(
 				continue;
 			}
 
-			ea.arena->ResetToRandomKickoff((int)(randEngine() & 0x7FFFFFFF));
+			if (captureWinners && tacticalRestartProb > 0.f && std::uniform_real_distribution<float>(0.f, 1.f)(randEngine) < tacticalRestartProb) {
+				// Tactical starts are explicitly opt-in training data, never standard audit games.
+				RocketSim::Math::GetRandEngine().seed(randEngine());
+				tacticalSetter.ResetArena(ea.arena);
+			} else {
+				ea.arena->ResetToRandomKickoff((int)(randEngine() & 0x7FFFFFFF));
+			}
 
 			// Move the cars a tiny bit (up to 1 of the ~118 units a car is long).
 			// Otherwise bots that always pick their most likely action would repeat the same few games.
@@ -2804,6 +2812,10 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	float noTouchTimeout = RS_MAX((float)opt.Num("eval-no-touch-timeout"), 0.f);
 	float maxSeconds = RS_MAX((float)opt.Num("eval-max-seconds"), 0.f);
 	bool finishGames = opt.Has("eval-finish-games");
+	float tacticalRestartProb = (float)opt.Num("eval-tactical-restart-prob");
+	if (tacticalRestartProb < 0.f || tacticalRestartProb > 1.f ||
+		(tacticalRestartProb > 0.f && opt.Str("eval-winner-traces").empty()))
+		RG_ERR_CLOSE("Tactical restarts require winner traces and a probability between 0 and 1");
 	int numArenas = RS_MAX((int)opt.Int("eval-arenas"), 2);
 	numArenas += numArenas % 2; // Even amount, so both sides play as blue and as orange equally often
 	double gameMinutes = opt.Num("eval-minutes");
@@ -2863,7 +2875,7 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	std::vector<EvalResult> results = {};
 	InferenceTrace combinedWinnerTraces[2];
 	for (int teamSize : teamSizes) {
-		EvalResult result = EvaluateMode(teamSize, unitA, unitB, actionParser, numArenas, gameMinutes, deterministic, noTouchTimeout, maxSeconds, finishGames, randEngine, !traceDir.empty());
+		EvalResult result = EvaluateMode(teamSize, unitA, unitB, actionParser, numArenas, gameMinutes, deterministic, noTouchTimeout, maxSeconds, finishGames, randEngine, !traceDir.empty(), tacticalRestartProb);
 		if (!traceDir.empty()) {
 			for (int side = 0; side < 2; side++) {
 				const auto& trace = result.winnerTraces[side];
@@ -2959,6 +2971,7 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 			j["kickoffs"] = result.numEpisodes;
 			if (!traceDir.empty()) {
 				j["match_seconds"] = 300;
+				j["tactical_restart_probability"] = tacticalRestartProb;
 				j["match_wins_a"] = result.matchWins[0];
 				j["match_wins_b"] = result.matchWins[1];
 				j["match_draws"] = result.matchDraws;

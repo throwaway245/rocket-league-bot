@@ -43,7 +43,16 @@ class WinnerDistillationTest(unittest.TestCase):
                  '--threads', '2', '--eval-winner-traces', str(traces), '--eval-out', str(result)])
             scores = json.loads(result.read_text())
             self.assertEqual(scores['match_seconds'], 300)
+            self.assertEqual(scores['tactical_restart_probability'], 0)
             self.assertGreater(scores['match_wins_a'], 0)
+            tactical_result = out / 'tactical.json'
+            run([str(BOT), '--eval', str(SMALL), '--vs', str(LARGE), '--eval-modes', '1v1',
+                 '--eval-minutes', '10', '--eval-arenas', '2', '--eval-finish-games', '--seed', '2049000',
+                 '--threads', '2', '--eval-winner-traces', str(out / 'tactical-traces'),
+                 '--eval-tactical-restart-prob', '1', '--eval-out', str(tactical_result)])
+            tactical = json.loads(tactical_result.read_text())
+            self.assertEqual(tactical['tactical_restart_probability'], 1)
+            self.assertEqual(tactical['match_wins_a'] + tactical['match_wins_b'] + tactical['match_draws'], 2)
             replay = traces / 'winner-a.pt'
             replay_hash = digest(replay)
             history_dir = out / 'history'
