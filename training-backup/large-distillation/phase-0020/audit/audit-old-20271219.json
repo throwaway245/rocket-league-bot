@@ -1,0 +1,114 @@
+{
+    "a_name": "training-backup/large-distillation/phase-0020/checkpoint",
+    "b_name": "training-backup/best/5163287775",
+    "modes": {
+        "1v1": {
+            "a": {
+                "air_ratio": 0.35702951443986036,
+                "avg_ball_distance": 2207.6769753180392,
+                "avg_boost": 17.082121478317024,
+                "avg_speed": 1272.4428446188108,
+                "ball_touches": 235,
+                "ball_touches_per_minute": 11.18692478578229,
+                "goals": 0,
+                "kickoff_first_touches": 81,
+                "model": "foundation-policy-v1",
+                "name": "training-backup/large-distillation/phase-0020/checkpoint"
+            },
+            "b": {
+                "air_ratio": 0.329366338728446,
+                "avg_ball_distance": 1188.0439212968156,
+                "avg_boost": 16.7481399580283,
+                "avg_speed": 1232.7129823335847,
+                "ball_touches": 758,
+                "ball_touches_per_minute": 36.08378292605522,
+                "goals": 104,
+                "kickoff_first_touches": 75,
+                "model": "s",
+                "name": "training-backup/best/5163287775"
+            },
+            "deterministic": false,
+            "game_minutes": 21.006666666666668,
+            "kickoffs": 104,
+            "max_seconds": 60.0,
+            "max_seconds_ends": 0,
+            "mode": "1v1",
+            "no_touch_timeout": 10.0,
+            "no_touch_timeouts": 0,
+            "real_seconds": 20.912432736,
+            "seed": 20271219
+        },
+        "2v2": {
+            "a": {
+                "air_ratio": 0.27396421344126104,
+                "avg_ball_distance": 2819.4331097474355,
+                "avg_boost": 25.319196066018147,
+                "avg_speed": 1278.6988510107144,
+                "ball_touches": 125,
+                "ball_touches_per_minute": 5.991053360315264,
+                "goals": 0,
+                "kickoff_first_touches": 48,
+                "model": "foundation-policy-v1",
+                "name": "training-backup/large-distillation/phase-0020/checkpoint"
+            },
+            "b": {
+                "air_ratio": 0.2523697944403025,
+                "avg_ball_distance": 2157.4558012248585,
+                "avg_boost": 30.729964493676768,
+                "avg_speed": 1303.7733591770673,
+                "ball_touches": 652,
+                "ball_touches_per_minute": 31.249334327404416,
+                "goals": 111,
+                "kickoff_first_touches": 99,
+                "model": "s",
+                "name": "training-backup/best/5163287775"
+            },
+            "deterministic": false,
+            "game_minutes": 20.86444444444444,
+            "kickoffs": 111,
+            "max_seconds": 60.0,
+            "max_seconds_ends": 0,
+            "mode": "2v2",
+            "no_touch_timeout": 10.0,
+            "no_touch_timeouts": 0,
+            "real_seconds": 20.100198011,
+            "seed": 20271219
+        },
+        "3v3": {
+            "a": {
+                "air_ratio": 0.2894267560033934,
+                "avg_ball_distance": 2675.843611571116,
+                "avg_boost": 27.075325887900693,
+                "avg_speed": 1220.6696476283691,
+                "ball_touches": 172,
+                "ball_touches_per_minute": 8.040305406949566,
+                "goals": 0,
+                "kickoff_first_touches": 59,
+                "model": "foundation-policy-v1",
+                "name": "training-backup/large-distillation/phase-0020/checkpoint"
+            },
+            "b": {
+                "air_ratio": 0.24333870046226563,
+                "avg_ball_distance": 2389.5525311417673,
+                "avg_boost": 31.882369892144666,
+                "avg_speed": 1262.3922969279447,
+                "ball_touches": 645,
+                "ball_touches_per_minute": 30.151145276060873,
+                "goals": 115,
+                "kickoff_first_touches": 102,
+                "model": "s",
+                "name": "training-backup/best/5163287775"
+            },
+            "deterministic": false,
+            "game_minutes": 21.392222222222223,
+            "kickoffs": 115,
+            "max_seconds": 60.0,
+            "max_seconds_ends": 0,
+            "mode": "3v3",
+            "no_touch_timeout": 10.0,
+            "no_touch_timeouts": 0,
+            "real_seconds": 28.202836589,
+            "seed": 20271219
+        }
+    }
+}
