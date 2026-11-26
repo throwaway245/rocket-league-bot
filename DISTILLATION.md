@@ -33,6 +33,10 @@ original until inference and resumed-distillation equivalence are validated.
 
 Winner trace capture uses five-minute simulated regulation matches, resets kickoffs after
 goals without resetting the match score, and discards tied and unfinished matches.
+Use `--eval-single-match --eval-modes 1v1 --eval-winner-traces DIR` (or exactly one other
+mode) for one game followed by a loser-only distillation phase; odd/even seeds swap sides.
+A drawn game has no winner replay and must not trigger distillation. The original checkpoints
+remain immutable; distill into a separate loser candidate, then evaluate it independently.
 It samples actions from the winning side only, with action masks and matching mirrored
 observations. The per-side trajectory collector samples every five simulation decisions
 and uses bounded reservoir sampling across completed winning matches. Combined replay

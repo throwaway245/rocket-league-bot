@@ -1418,6 +1418,7 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "eval-max-seconds", "0", "Evaluation: restart with a kickoff after this many seconds without a goal, 0 = never" },
 	{ "eval-finish-games", NULL, "Evaluation: when the game time is up, let the running kickoffs finish instead of dropping them (needs one of the two limits above)" },
 	{ "eval-winner-traces", "", "Save sampled winning-side actions from five-minute regulation matches; tied matches are discarded" },
+	{ "eval-single-match", NULL, "Play exactly one five-minute match in one mode for game-by-game winner distillation; seed parity swaps sides" },
 	{ "eval-tactical-restart-prob", "0", "Winner-trace games: probability of a seeded tactical restart instead of a kickoff, 0 to 1" },
 	{ "eval-out", "", "Also write the evaluation results to this JSON file" },
 	{ "deterministic", NULL, "Evaluation: always pick the most likely action instead of sampling" },
@@ -2547,7 +2548,7 @@ InferUnit* MakeInferUnit(const Options& opt, std::filesystem::path checkpointPat
 //	the time each arena gets.
 EvalResult EvaluateMode(
 	int teamSize, InferUnit* unitA, InferUnit* unitB, ActionParser* actionParser,
-	int numArenas, double gameMinutes, bool deterministic, float noTouchTimeout, float maxSeconds, bool finishGames, std::mt19937& randEngine, bool captureWinners = false, float tacticalRestartProb = 0.f) {
+	int numArenas, double gameMinutes, bool deterministic, float noTouchTimeout, float maxSeconds, bool finishGames, std::mt19937& randEngine, bool captureWinners = false, float tacticalRestartProb = 0.f, bool singleMatchFlip = false) {
 
 	if (captureWinners)
 		finishGames = true; // Finish regulation, even when the aggregate time budget expires.
@@ -2563,7 +2564,8 @@ EvalResult EvaluateMode(
 	std::vector<EvalArena> arenas(numArenas);
 	for (int i = 0; i < numArenas; i++) {
 		arenas[i].arena = MakeArena(teamSize);
-		arenas[i].teamA = (i % 2 == 0) ? Team::BLUE : Team::ORANGE;
+		// In a single-match run, seed parity alternates the side to avoid always using blue.
+		arenas[i].teamA = ((i + (singleMatchFlip ? 1 : 0)) % 2 == 0) ? Team::BLUE : Team::ORANGE;
 	}
 
 	const double stepsPerSecond = 120.0 / TICK_SKIP;
@@ -2816,9 +2818,13 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	if (tacticalRestartProb < 0.f || tacticalRestartProb > 1.f ||
 		(tacticalRestartProb > 0.f && opt.Str("eval-winner-traces").empty()))
 		RG_ERR_CLOSE("Tactical restarts require winner traces and a probability between 0 and 1");
-	int numArenas = RS_MAX((int)opt.Int("eval-arenas"), 2);
-	numArenas += numArenas % 2; // Even amount, so both sides play as blue and as orange equally often
-	double gameMinutes = opt.Num("eval-minutes");
+	bool singleMatch = opt.Has("eval-single-match");
+	if (singleMatch && opt.Str("eval-winner-traces").empty())
+		RG_ERR_CLOSE("--eval-single-match requires winner traces");
+	int numArenas = singleMatch ? 1 : RS_MAX((int)opt.Int("eval-arenas"), 2);
+	if (!singleMatch) numArenas += numArenas % 2; // Side-balanced ordinary evaluation
+	// A positive budget shorter than regulation prevents starting a second match.
+	double gameMinutes = singleMatch ? 0.1 : opt.Num("eval-minutes");
 
 	// The same seed gives the same kickoffs, the same random actions and the same sampled actions
 	int64_t seed = opt.Int("seed");
@@ -2861,6 +2867,8 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 
 	// The game modes that both sides can play
 	std::vector<int> teamSizes = ParseModes(opt.Str("eval-modes"), "eval-modes");
+	if (singleMatch && teamSizes.size() != 1)
+		RG_ERR_CLOSE("--eval-single-match requires exactly one game mode");
 	if (!multiModeB) {
 		if (opt.Str("eval-modes") != "auto" && teamSizes != std::vector<int>{ 1 })
 			RG_ERR_CLOSE("Option --eval-modes: the model \"" << modelB << "\" of the opponent only plays 1v1");
@@ -2875,7 +2883,7 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	std::vector<EvalResult> results = {};
 	InferenceTrace combinedWinnerTraces[2];
 	for (int teamSize : teamSizes) {
-		EvalResult result = EvaluateMode(teamSize, unitA, unitB, actionParser, numArenas, gameMinutes, deterministic, noTouchTimeout, maxSeconds, finishGames, randEngine, !traceDir.empty(), tacticalRestartProb);
+		EvalResult result = EvaluateMode(teamSize, unitA, unitB, actionParser, numArenas, gameMinutes, deterministic, noTouchTimeout, maxSeconds, finishGames, randEngine, !traceDir.empty(), tacticalRestartProb, singleMatch && (seed & 1));
 		if (!traceDir.empty()) {
 			for (int side = 0; side < 2; side++) {
 				const auto& trace = result.winnerTraces[side];
@@ -2963,6 +2971,9 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 
 			json j = {};
 			j["mode"] = ModeName(result.teamSize);
+			j["num_arenas"] = result.numArenas;
+			j["single_match"] = singleMatch;
+			if (singleMatch) j["side_a_team"] = (seed & 1) ? "orange" : "blue";
 			j["a"] = fnSideJSON(result.sideA);
 			j["b"] = fnSideJSON(result.sideB);
 			j["game_minutes"] = result.simMinutes;
