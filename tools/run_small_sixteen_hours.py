@@ -22,7 +22,7 @@ DURATION = 16 * 60 * 60
 INTERVAL = 1500
 CAMPAIGN = ROOT / 'results/weights1700-v6/campaign'
 DEST = ROOT / 'training-backup/small-sixteen-hour'
-BRANCH = 'arena/09e5f0bb-rocket-league-bot'
+BRANCH = 'arena/9887d5e6-rocket-league-bot'
 
 
 def main():
