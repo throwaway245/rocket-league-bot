@@ -89,7 +89,7 @@ class RestoreTests(unittest.TestCase):
                 'sha256': {'state.json': hashlib.sha256(payload).hexdigest()}}))
             with patch.object(resume_training, 'ROOT', root), patch.object(resume_training, 'SNAPSHOT', snapshot), \
                  patch.object(resume_training, 'WORK', root / 'results/old'), \
-                 patch.object(resume_training, 'restore', wraps=lambda **kw: restore(snapshot=snapshot, **kw)), \
+                 patch.object(resume_training, 'restore', wraps=restore), \
                  patch.object(resume_training.subprocess, 'run') as launch, \
                  patch('sys.argv', ['resume_training.py', '--restore-only']):
                 resume_training.main()
