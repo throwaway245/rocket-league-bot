@@ -1,0 +1,165 @@
+{
+  "Total Timesteps": 425952,
+  "checkpoint_sha256": {
+    "INFO.json": "84c9c49a7a49b745cb3132e4359254ea5c68667830645d099d1e34fc88405bfe",
+    "POLICY.lt": "9d32c50d7557cd54945174606c8b8134b7ad7a28ac042f5e02b55af838cc9256",
+    "POLICY_OPTIM.lt": "01f4e9301bd0f713c510c1c16376518b34d0afe09132edcee0127c20bc4df46b",
+    "RUNNING_STATS.json": "2240fd2106c2ef05b6dcca212542fc5351da1adcbca1ee98e990f94079c0109b",
+    "SHARED_HEAD.lt": "967cebf026de0b9bd83947f42bab1057f4f4ebee2c8d64babed5a1f359ccfb2f",
+    "SHARED_HEAD_OPTIM.lt": "7020cbde16019b2f74ab6fc04228604b33dd561dd3ca74c622711d8e6e77ae92",
+    "SHARED_HEAD_SLOTS.lt": "573774ae249f4839c574d86524220d69557ec9c2d98f6bd01a2dd0e9588a89d2"
+  },
+  "match_results": {
+    "a_name": "training-backup/learner/7178045919",
+    "b_name": "training-backup/large-distillation/phase-0003/checkpoint",
+    "evidence": {
+      "distillation_batch": 1024,
+      "distillation_seed": 20271602,
+      "epochs_per_batch": 1,
+      "history_replay_sha256": "3f0390378979997cba267378a793b2301a4b397883539d990a2f37bc00c48370",
+      "large_start_checkpoint": "training-backup/large-distillation/phase-0003/checkpoint",
+      "learning_rate": 0.0001,
+      "method": "five-minute regulation; ties discarded; winner actions sampled",
+      "replay_weight": 1,
+      "small_checkpoint": "training-backup/learner/7178045919",
+      "teacher_rollout": 0,
+      "total_timesteps_end": 425952,
+      "total_timesteps_start": 175392,
+      "trace_sha256": {
+        "1v1-winner-a.pt": "d3e9d0f1df15c42b7c7fa593c3ee4f09615c5e9bfa306b250d5fe8dbff0e3204",
+        "2v2-winner-a.pt": "186c6894bfcb09d532d63c302892f8ab64b0d72ebf51f74c0b39d24972e3e4c6",
+        "3v3-winner-a.pt": "959c760080746b24efaac6b0655c3d42f25e4b1e241a646e65329c6c27909d98",
+        "winner-a.pt": "4ab39e56b04621db5065cda7eba3b15745fdcb510703ab1759e75fe3cf4dce3c"
+      }
+    },
+    "modes": {
+      "1v1": {
+        "a": {
+          "air_ratio": 0.33964814814814814,
+          "avg_ball_distance": 1473.932452376754,
+          "avg_boost": 15.113705473370022,
+          "avg_speed": 1407.5612304723093,
+          "ball_touches": 1648,
+          "ball_touches_per_minute": 27.466666666666665,
+          "goals": 400,
+          "kickoff_first_touches": 409,
+          "model": "s",
+          "name": "training-backup/learner/7178045919"
+        },
+        "b": {
+          "air_ratio": 0.40964814814814815,
+          "avg_ball_distance": 3754.247895666476,
+          "avg_boost": 11.691206785065157,
+          "avg_speed": 1316.3939552039294,
+          "ball_touches": 88,
+          "ball_touches_per_minute": 1.4666666666666666,
+          "goals": 0,
+          "kickoff_first_touches": 18,
+          "model": "foundation-policy-v1",
+          "name": "training-backup/large-distillation/phase-0003/checkpoint"
+        },
+        "deterministic": false,
+        "game_minutes": 60.0,
+        "kickoffs": 412,
+        "match_draws": 0,
+        "match_seconds": 300,
+        "match_wins_a": 12,
+        "match_wins_b": 0,
+        "max_seconds": 0.0,
+        "max_seconds_ends": 0,
+        "mode": "1v1",
+        "no_touch_timeout": 10.0,
+        "no_touch_timeouts": 0,
+        "real_seconds": 22.015748775,
+        "seed": 20271601
+      },
+      "2v2": {
+        "a": {
+          "air_ratio": 0.25405555555555553,
+          "avg_ball_distance": 2369.9104759735533,
+          "avg_boost": 24.998871516064362,
+          "avg_speed": 1310.7101452031231,
+          "ball_touches": 1562,
+          "ball_touches_per_minute": 26.033333333333335,
+          "goals": 363,
+          "kickoff_first_touches": 359,
+          "model": "s",
+          "name": "training-backup/learner/7178045919"
+        },
+        "b": {
+          "air_ratio": 0.34491666666666665,
+          "avg_ball_distance": 3583.98530475016,
+          "avg_boost": 19.91498395306534,
+          "avg_speed": 1203.222514902805,
+          "ball_touches": 186,
+          "ball_touches_per_minute": 3.1,
+          "goals": 0,
+          "kickoff_first_touches": 34,
+          "model": "foundation-policy-v1",
+          "name": "training-backup/large-distillation/phase-0003/checkpoint"
+        },
+        "deterministic": false,
+        "game_minutes": 60.0,
+        "kickoffs": 375,
+        "match_draws": 0,
+        "match_seconds": 300,
+        "match_wins_a": 12,
+        "match_wins_b": 0,
+        "max_seconds": 0.0,
+        "max_seconds_ends": 0,
+        "mode": "2v2",
+        "no_touch_timeout": 10.0,
+        "no_touch_timeouts": 0,
+        "real_seconds": 29.330504651,
+        "seed": 20271601
+      },
+      "3v3": {
+        "a": {
+          "air_ratio": 0.23135802469135802,
+          "avg_ball_distance": 2673.768327061359,
+          "avg_boost": 28.473025435820038,
+          "avg_speed": 1257.3904585350735,
+          "ball_touches": 1518,
+          "ball_touches_per_minute": 25.3,
+          "goals": 347,
+          "kickoff_first_touches": 348,
+          "model": "s",
+          "name": "training-backup/learner/7178045919"
+        },
+        "b": {
+          "air_ratio": 0.3396296296296296,
+          "avg_ball_distance": 3548.5819706661555,
+          "avg_boost": 23.898065625316566,
+          "avg_speed": 1138.7318229163952,
+          "ball_touches": 169,
+          "ball_touches_per_minute": 2.816666666666667,
+          "goals": 0,
+          "kickoff_first_touches": 30,
+          "model": "foundation-policy-v1",
+          "name": "training-backup/large-distillation/phase-0003/checkpoint"
+        },
+        "deterministic": false,
+        "game_minutes": 60.0,
+        "kickoffs": 359,
+        "match_draws": 0,
+        "match_seconds": 300,
+        "match_wins_a": 12,
+        "match_wins_b": 0,
+        "max_seconds": 0.0,
+        "max_seconds_ends": 0,
+        "mode": "3v3",
+        "no_touch_timeout": 10.0,
+        "no_touch_timeouts": 0,
+        "real_seconds": 37.011300526,
+        "seed": 20271601
+      }
+    }
+  },
+  "model": "foundation-policy-v1",
+  "phase": 4,
+  "total_timesteps": 425952,
+  "winner_replay": {
+    "compressed_sha256": "fbb5938cea72ada63ac9b3600d3ad3193eb0050ce06b5fd67254c408c6361fe9",
+    "uncompressed_sha256": "4ab39e56b04621db5065cda7eba3b15745fdcb510703ab1759e75fe3cf4dce3c"
+  }
+}

@@ -39,6 +39,8 @@ namespace GGL {
 		bool useHalfPrecision = false;
 
 		PartialModelConfig policy, critic, sharedHead;
+		// Distillation/inference-only models must never enter PPO without a value network.
+		bool actorOnly = false;
 
 		int epochs = 2;
 		float policyLR = 3e-4f; // Policy learning rate

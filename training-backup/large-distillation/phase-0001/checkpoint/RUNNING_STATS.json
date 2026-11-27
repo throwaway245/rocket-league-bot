@@ -1,0 +1,10 @@
+{
+    "mirror_x": -1,
+    "return_stat": {
+        "count": 0,
+        "mean": 0.0,
+        "var": 0.0
+    },
+    "total_iterations": 8,
+    "total_timesteps": 8352
+}

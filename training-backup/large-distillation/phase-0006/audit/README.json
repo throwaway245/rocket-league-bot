@@ -1,0 +1,19 @@
+{
+  "candidate_promoted": false,
+  "files": {
+    "audit-current-20271219.json": "89fcd48faeee05acf186abba48f794a12f503c95fba82713ce47e9a16bdce720",
+    "audit-current-20271519.json": "94738b4b59c8f188d8211b4f39c9c8204a40c6204fdb324e7094e15d67f50988",
+    "audit-old-20271219.json": "e08ec1a67caaa16c5dd62783ae9b2b9986aa3967cac2ed3e75c7efec1e389c16",
+    "audit-old-20271519.json": "6bb3b83586340a085a74404881d20048c1452fe58ba6c054098ff6db6504e112",
+    "full-match-small-20271901.json": "369cea707491934aafe0a63505c9c03c289aff61e435900a609f54a7a5737b56",
+    "next-winner-replay.pt.gz": "41b9dc1ebdc8229afb5b9d615d8a68351dac8d0923c6b37c74ada15552ea5975"
+  },
+  "full_match_seed": 20271901,
+  "kickoff_seeds": [
+    20271219,
+    20271519
+  ],
+  "next_winner_replay_uncompressed_sha256": "dc53c9c0734b80318eefe59a8e64634967232e5c8b9b124a69976ad2a9042cba",
+  "protocol": "side-balanced first-goal kickoff episodes and separate five-minute matches; no promotion",
+  "sampling_fix": "full-match run used legal-action sampling fix; kickoff runs preceded fix"
+}

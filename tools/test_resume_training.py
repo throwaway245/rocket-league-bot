@@ -89,7 +89,7 @@ class RestoreTests(unittest.TestCase):
                 'sha256': {'state.json': hashlib.sha256(payload).hexdigest()}}))
             with patch.object(resume_training, 'ROOT', root), patch.object(resume_training, 'SNAPSHOT', snapshot), \
                  patch.object(resume_training, 'WORK', root / 'results/old'), \
-                 patch.object(resume_training, 'restore', wraps=lambda **kw: restore(snapshot=snapshot, **kw)), \
+                 patch.object(resume_training, 'restore', wraps=restore), \
                  patch.object(resume_training.subprocess, 'run') as launch, \
                  patch('sys.argv', ['resume_training.py', '--restore-only']):
                 resume_training.main()
@@ -222,6 +222,7 @@ class RestoreTests(unittest.TestCase):
         train_ranked.validate_rewards('v6')
         train_ranked.validate_rewards('v7')
         train_ranked.validate_rewards('v8')
+        train_ranked.validate_rewards('v9')
         train_ranked.validate_rewards('Goal=750,Save=30')
         for bad in ('v999', 'Goal=750,NotAReward=2', 'Goal=750,garbage'):
             with self.assertRaises(ValueError):

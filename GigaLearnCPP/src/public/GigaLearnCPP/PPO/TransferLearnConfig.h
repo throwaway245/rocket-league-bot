@@ -55,5 +55,11 @@ namespace GGL {
 		float teacherRolloutChance = 0.f;
 		// Measure on fresh observations without updating or saving the student.
 		bool evaluationOnly = false;
+		// Optional immutable replay shard: identical-contract observations, masks and teacher probabilities.
+		std::filesystem::path replayInput;
+		std::filesystem::path replayHistory; // Optional previous shard, merged with current replay.
+		std::vector<std::filesystem::path> replayHistories; // Bounded additional immutable shards.
+		std::filesystem::path replayOutput;
+		float replayWeight = 0.f;
 	};
 }

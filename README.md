@@ -6,11 +6,11 @@ Native C++ PPO training and RLBot integration for a single shared policy (`s`, l
 
 Small-model training and foundation distillation are paused. See [DISTILLATION.md](DISTILLATION.md).
 
-- **Canonical snapshot:** [`training-backup/`](training-backup/) (`status: paused`, SHA-256 verified via `training-backup/manifest.json`).
-- **Latest resumable learner checkpoint:** `training-backup/learner/7178045919/`, including policy, critic, shared head, optimizer states and running stats; the active reward override is experimental v8.
-- **Selected best checkpoint:** `training-backup/best/6898483167/`, with screen `1961.04` and confirmation `1959.82` against the evolving campaign pool. These ratings are not a held-out audit.
-- **Distillation teacher:** `training-backup/best/5163287775/` is retained separately to preserve the existing student's teacher contract.
-- **Metrics & backups:** Training writes local JSONL metrics; all training-time W&B logging is temporarily disabled. Optional checkpoint backups are separate from telemetry.
+- **Latest paused small-model snapshot:** [`training-backup/small-sixteen-hour/`](training-backup/small-sixteen-hour/) contains full learner checkpoint `7745735391`, its opponent pool, state and SHA-256 manifest. The experimental v8 reward override remains active.
+- **Selected best:** `training-backup/small-sixteen-hour/best/7545038559/`, with screen `1980.37` and confirmation `1981.57` against the evolving pool; these are not held-out ratings.
+- The requested 16-hour run was paused early at the user's request, after approximately 8 hours 15 minutes of wall-clock time (including evaluations); no distillation ran during it.
+- The earlier small-model snapshot and distillation teacher remain in `training-backup/`; large distillation phases are preserved under `training-backup/large-distillation/`. Phase 44's monitored policy argmax agreement was approximately 45–49%, below the 90% target.
+- Training writes local metrics; training-time W&B is disabled.
 
 ## Build and resume
 
@@ -20,16 +20,22 @@ Small-model training and foundation distillation are paused. See [DISTILLATION.m
 # bash tools/setup_pypi_cpu.sh
 
 # Inspect paused ratings without starting training:
-python3 tools/show_rating.py training-backup
+python3 tools/show_rating.py training-backup/small-sixteen-hour
 
-# Restore working copy only (no training started):
-python3 tools/resume_training.py --restore-only
+# Verify and restore the latest snapshot into a working copy (does not start training):
+python3 tools/resume_training.py --snapshot training-backup/small-sixteen-hour --restore-only
 
-# Resume paused training (local metrics; optional checkpoint backup):
-python3 tools/resume_training.py
+# Resume explicitly, without a backup service or W&B:
+python3 tools/resume_training.py --snapshot training-backup/small-sixteen-hour --without-services
+```
 
-# ...or run the trainer without any helper process:
-python3 tools/resume_training.py --without-services
+The restore command retains an existing working campaign rather than overwriting it; inspect or
+move that working copy explicitly if you need to restore a different snapshot. The default backup
+service writes to `training-backup/`, so do not enable it if the older snapshot must stay immutable.
+
+```bash
+# Original pre-run small-model snapshot (also retained):
+python3 tools/resume_training.py --snapshot training-backup --restore-only
 ```
 
 See [RANKED_TRAINING.md](RANKED_TRAINING.md) for the evaluation protocol, CLI options, manual post-training export, and recovery details.

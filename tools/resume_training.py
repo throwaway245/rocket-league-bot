@@ -164,6 +164,8 @@ def build_resume_command(state, work, without_services=False, backup_interval=18
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--restore-only', action='store_true')
+    parser.add_argument('--snapshot', type=Path, default=SNAPSHOT,
+                        help='Verified snapshot to restore (default: training-backup)')
     parser.add_argument('--without-services', action='store_true',
                         help='Run trainer only, without the 30-minute GitHub backup or W&B streaming')
     parser.add_argument('--no-wandb', action='store_true',
@@ -190,11 +192,12 @@ def main():
     parser.add_argument('--wandb-interval', type=float, default=10.0,
                         help='Seconds between direct W&B stream polls (default: 10)')
     args = parser.parse_args()
-    saved = json.loads((SNAPSHOT / 'state.json').read_text())
+    snapshot = args.snapshot.resolve()
+    saved = json.loads((snapshot / 'state.json').read_text())
     work = ROOT / saved.get('working_directory', str(WORK.relative_to(ROOT)))
     if not work.resolve().is_relative_to((ROOT / 'results').resolve()):
         raise ValueError('Saved working campaign must be under results/, never the canonical backup')
-    state = restore(work=work)
+    state = restore(snapshot=snapshot, work=work)
     if args.restore_only:
         return
     if state['status'] == 'complete':

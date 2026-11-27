@@ -2,6 +2,7 @@
 
 #include <GigaLearnCPP/Util/Models.h>
 #include <GigaLearnCPP/PPO/PPOLearner.h>
+#include <torch/serialize.h>
 
 GGL::InferUnit::InferUnit(
 	RLGC::ObsBuilder* obsBuilder, int obsSize, RLGC::ActionParser* actionParser,
@@ -35,6 +36,31 @@ void GGL::InferUnit::SetMirrorX(int mirrorX) {
 	obsBuilder->mirrorXTeam[0] = obsBuilder->mirrorXTeam[1] = mirrorX;
 }
 
+void GGL::InferUnit::SaveInferenceTrace(const InferenceTrace& trace, int obsSize, int actionCount, const std::filesystem::path& path, bool policyTargets) {
+	TORCH_CHECK(!std::filesystem::exists(path), "Refusing to overwrite match replay");
+	auto rows = (int64_t)trace.actions.size();
+	TORCH_CHECK(rows > 0 && trace.observations.size() == rows * obsSize && trace.actionMasks.size() == rows * actionCount,
+		"Invalid or empty match trace");
+	auto obs = torch::tensor(trace.observations).reshape({rows, obsSize});
+	auto mask = torch::tensor(trace.actionMasks).reshape({rows, actionCount});
+	auto acts = torch::tensor(trace.actions, torch::kLong);
+	TORCH_CHECK((acts >= 0).all().item<bool>() && (acts < actionCount).all().item<bool>() &&
+		(mask.gather(1, acts.unsqueeze(1)) != 0).all().item<bool>(), "Invalid recorded action");
+	torch::Tensor probs;
+	if (policyTargets) {
+		TORCH_CHECK(trace.actionProbabilities.size() == rows * actionCount, "Missing winner policy probabilities");
+		probs = torch::tensor(trace.actionProbabilities).reshape({rows, actionCount});
+		TORCH_CHECK(torch::isfinite(probs).all().item<bool>() && (probs >= 0).all().item<bool>() &&
+			(probs.masked_select(mask == 0).abs() < 1e-6).all().item<bool>() &&
+			torch::allclose(probs.sum(-1), torch::ones({rows}, probs.options()), 1e-4, 1e-4), "Invalid winner policy probabilities");
+	} else {
+		probs = torch::zeros({rows, actionCount}, torch::kFloat32);
+		probs.scatter_(1, acts.unsqueeze(1), 1.f);
+	}
+	std::vector<torch::Tensor> shard = {obs, mask, probs};
+	torch::save(shard, path.string());
+}
+
 void GGL::InferUnit::SetRandomSeed(uint64_t seed) {
 	torch::manual_seed(seed);
 }
@@ -43,7 +69,7 @@ RLGC::Action GGL::InferUnit::InferAction(const RLGC::Player& player, const RLGC:
 	return BatchInferActions({ player }, { state }, deterministic, temperature)[0];
 }
 
-std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature) {
+std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature, InferenceTrace* trace) {
 	RG_ASSERT(players.size() > 0 && states.size() > 0);
 	RG_ASSERT(players.size() == states.size());
 
@@ -78,9 +104,22 @@ std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RL
 		tActionMasks = tActionMasks.to(device);
 		torch::Tensor tActions, tLogProbs;
 
-		PPOLearner::InferActionsFromModels(*models, tObs, tActionMasks, deterministic, temperature, false, &tActions, &tLogProbs);
+		// Policy probabilities are clamped to a small positive value for PPO log/entropy
+		// calculations. Never sample that numerical floor on a disabled action during
+		// evaluation or winner-trace capture.
+		auto probs = PPOLearner::InferPolicyProbsFromModels(*models, tObs, tActionMasks, temperature, false);
+		auto allowed = tActionMasks.to(torch::kBool);
+		TORCH_CHECK(allowed.any(-1).all().item<bool>(), "No legal actions for inference");
+		probs = probs.masked_fill(allowed.logical_not(), 0);
+		PPOLearner::ChooseActions(probs, deterministic, &tActions, &tLogProbs);
 
 		auto actionIndices = TENSOR_TO_VEC<int>(tActions);
+		if (trace) {
+			trace->observations = allObs;
+			trace->actionMasks = allActionMasks;
+			trace->actions = actionIndices;
+			trace->actionProbabilities = TENSOR_TO_VEC<float>((probs / probs.sum(-1, true)).flatten());
+		}
 		
 		for (int i = 0; i < batchSize; i++) {
 			RLGC::Action action = actionParser->ParseAction(actionIndices[i], players[i], states[i]);

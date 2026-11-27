@@ -3,6 +3,14 @@
 #include "ModelConfig.h"
 
 namespace GGL {
+	// Optional policy-space trace for isolated evaluation; never used by PPO collection.
+	struct InferenceTrace {
+		std::vector<float> observations;
+		std::vector<uint8_t> actionMasks;
+		std::vector<int> actions;
+		// The winner's action probabilities on the exact recorded observations.
+		std::vector<float> actionProbabilities;
+	};
 	struct RG_IMEXPORT InferUnit {
 		int obsSize;
 		RLGC::ObsBuilder* obsBuilder;
@@ -22,7 +30,10 @@ namespace GGL {
 		void SetMirrorX(int mirrorX);
 
 		RLGC::Action InferAction(const RLGC::Player& player, const RLGC::GameState& state, bool deterministic, float temperature = 1);
-		std::vector<RLGC::Action> BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature = 1);
+		std::vector<RLGC::Action> BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature = 1, InferenceTrace* trace = nullptr);
+
+		// Save either observed one-hot actions or the corresponding winner policy distributions.
+		static void SaveInferenceTrace(const InferenceTrace& trace, int obsSize, int actionCount, const std::filesystem::path& path, bool policyTargets = false);
 
 		// Sets the seed of the random numbers that non-deterministic actions are chosen with (for all InferUnits)
 		static void SetRandomSeed(uint64_t seed);

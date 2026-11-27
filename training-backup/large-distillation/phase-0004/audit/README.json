@@ -1,0 +1,14 @@
+{
+  "candidate_promoted": false,
+  "files": {
+    "audit-current-20271219.json": "73b9978b91d3327ae790cb449a76519e51a9acc88c5698634ed3b2a6d3c4c2c5",
+    "audit-current-20271519.json": "918a7dedc9c674defa51a543dd47f2d492de49a93cea8aba0878e756b57a3ca1",
+    "audit-old-20271219.json": "9470f4ed076eeb79f37ce00d69203b39e04c08122d844b108fee52feda03bc13",
+    "audit-old-20271519.json": "2335a1642227f67ac5d66ccad7351b95181b56ab3f63d84b95f8c13e04a6470c"
+  },
+  "protocol": "side-balanced first-goal kickoff episodes, not full matches; 20 minutes per mode",
+  "seeds": [
+    20271219,
+    20271519
+  ]
+}

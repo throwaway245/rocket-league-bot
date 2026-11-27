@@ -265,10 +265,13 @@ void RLGC::EnvSet::StepSecondHalf(const IList& actionIndices, bool async) {
 						rewardToSave = zeroSum->_lastRewards[playerSampleIndex];
 
 					// If needed, initialize last rewards
-					if (state.lastRewards[arenaIdx].empty())
+					if (state.lastRewards[arenaIdx].empty()) {
 						state.lastRewards[arenaIdx].resize(rewards[arenaIdx].size());
+						state.lastAppliedRewards[arenaIdx].resize(rewards[arenaIdx].size());
+					}
 
 					state.lastRewards[arenaIdx][rewardIdx] = rewardToSave;
+					state.lastAppliedRewards[arenaIdx][rewardIdx] = output[playerSampleIndex] * weightedReward.weight;
 				}
 			}
 

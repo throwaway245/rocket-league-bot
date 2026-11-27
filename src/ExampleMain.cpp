@@ -800,6 +800,13 @@ static const std::map<std::string, std::string> REWARD_PRESETS = {
 	        "Goal=750,GoalSpeed=110,ScorerAssist=75,Save=30,Shot=20,DirectionalTouch=16,ObjectiveBallVel=10,"
 	        "KickoffSpeed=6,TeamPressure=2,SoloDiscipline=0.7,DefensiveCover=0.6,DoubleCommit=0.6,"
 	        "PickupBoostZS=4,SaveBoost=0.05,DemoZS=15,Bump=0" },
+	// v9 cautiously phases down redundant dense terms; preserve scoring and mechanics signals.
+	{ "v9", "Air=0,FaceBall=0,VelocityPlayerToBall=0,NearestVelocityToBall=0.12,TouchBall=0,Speed=0,"
+	        "ProductiveAerialTouch=2,ProductiveWavedash=0.5,TeamVelocityToBall=0,StrongTouch=0,TouchAccel=3,"
+	        "VelocityBallToGoal=0,BehindBall=0,TeamSpacing=0.30,KickoffProximity=0,PickupBoost=0,Demo=0,"
+	        "Goal=750,GoalSpeed=110,ScorerAssist=75,Save=30,Shot=20,DirectionalTouch=16,ObjectiveBallVel=10,"
+	        "KickoffSpeed=6,TeamPressure=2,SoloDiscipline=0.7,DefensiveCover=0.6,DoubleCommit=0.5,"
+	        "PickupBoostZS=4,SaveBoost=0.05,DemoZS=15,Bump=0" },
 };
 
 // Weights that differ from the defaults (--rewards)
@@ -1103,6 +1110,8 @@ static const std::vector<BotSpec> BOT_PRESETS = {
 	{ "l",       "1v1/2v2/3v3, large (the size this project trains)",          true,  { 256, 256 }, { 1024, 1024, 1024 },  { 512, 512 },      { 512, 512 } },
 	// Frozen checkpoint ABI: do not change foundation-v1; add a new name for future designs.
 	{ "foundation-v1", "fixed large multimode distillation foundation",          true,  { 256, 256 }, { 1024, 1024, 1024 },  { 512, 512 },      { 512, 512 } },
+	// Same actor ABI as foundation-v1, but no value network or value optimizer.
+	{ "foundation-policy-v1", "large actor-only distillation policy (not PPO)", true, { 256, 256 }, { 1024, 1024, 1024 }, { 512, 512 }, {} },
 	{ "xl",      "1v1/2v2/3v3, extra large (needs a GPU)",                     true,  { 512, 512 }, { 2048, 2048, 1024 },  { 1024, 1024 },    { 1024, 1024 } },
 };
 
@@ -1166,6 +1175,7 @@ Arena* MakeArena(int teamSize) {
 }
 
 void SetModelConfig(PPOLearnerConfig& ppo) {
+	ppo.actorOnly = (g_Bot.name == "foundation-policy-v1");
 	ppo.sharedHead.layerSizes = g_Bot.sharedHeadSizes;
 	ppo.policy.layerSizes = g_Bot.policySizes;
 	ppo.critic.layerSizes = g_Bot.criticSizes;
@@ -1346,7 +1356,7 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "random-car-speed", NULL, "Random states: the cars start with a random speed and spin, instead of at rest" },
 	{ "random-cars-in-air", NULL, "Random states: half of the cars start in the air with a random orientation, instead of all on the ground" },
 	{ "no-touch-timeout", "10", "Seconds without a ball touch before an episode is cut off, 0 = never" },
-	{ "rewards", "", "Reward weights that differ from the defaults, e.g. \"VelocityBallToGoal=6,Air=0\" (0 = off), see the list below — or a named preset: v3 (the 66-cycle campaign), v4 (dense RLGym-style shaping restored), v5 (v4 without FaceBall), v6 (measured rebalance), v7 (phase down redundant shaping), v8 (productive aerial touches and wavedashes)" },
+	{ "rewards", "", "Reward weights that differ from the defaults, e.g. \"VelocityBallToGoal=6,Air=0\" (0 = off), see the list below — or a named preset: v3 (the 66-cycle campaign), v4 (dense RLGym-style shaping restored), v5 (v4 without FaceBall), v6 (measured rebalance), v7 (phase down redundant shaping), v8 (productive aerial touches and wavedashes), v9 (phase down redundant dense terms)" },
 	{ "seed", "123", "Random seed of the training or the evaluation, -1 = use the current time" },
 	{ "ts-per-save", "1000000", "Timesteps between checkpoints" },
 	{ "ts-per-save-after-first", "0", "Timesteps between checkpoints once the first one of this run exists (0 = use --ts-per-save)" },
@@ -1354,11 +1364,18 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "max-timesteps", "0", "Save and stop once this many total timesteps are reached, 0 = no limit" },
 	{ "max-minutes", "0", "Save and stop after this many minutes, 0 = no limit" },
 	{ "distill-teacher", "", "Distill a compatible multimode teacher checkpoint into --model foundation-v1" },
+	{ "distill-init-only", NULL, "Initialize a new actor-only foundation checkpoint without learning" },
 	{ "distill-batch", "2048", "Distillation observations per iteration" },
 	{ "distill-epochs", "3", "Distillation optimizer steps per batch" },
 	{ "distill-teacher-rollout", "0.5", "Fraction of rollout batches driven by teacher, 0 to 1" },
 	{ "distill-eval", NULL, "Evaluate transfer on a fresh rollout without updating or saving" },
 	{ "distill-new-teacher", NULL, "Explicitly permit changing the teacher of an existing student" },
+	{ "distill-small-candidate", NULL, "Allow isolated s-model distillation candidates (never the live learner)" },
+	{ "distill-replay-in", "", "Read an immutable compatible replay shard" },
+	{ "distill-replay-history", "", "Mix one compatible previous replay shard for retention" },
+	{ "distill-replay-history-dir", "", "Mix up to eight compatible previous .pt shards from a directory" },
+	{ "distill-replay-out", "", "Save the first labeled batch as a new replay shard; never overwrite" },
+	{ "distill-replay-weight", "0", "Fraction of KL loss from historical replay, between 0 and 1" },
 	{ "run-name", "gigalearncpp-run", "Run name for the metrics receiver" },
 	{ "no-metrics", NULL, "Don't send metrics to the Python metrics receiver" },
 	{ "wandb", NULL, "Unavailable: W&B logging during training is temporarily disabled" },
@@ -1400,6 +1417,10 @@ static const OptionDef OPTION_DEFS[] = {
 	{ "eval-no-touch-timeout", "10", "Evaluation: restart with a kickoff after this many seconds without a ball touch, 0 = never" },
 	{ "eval-max-seconds", "0", "Evaluation: restart with a kickoff after this many seconds without a goal, 0 = never" },
 	{ "eval-finish-games", NULL, "Evaluation: when the game time is up, let the running kickoffs finish instead of dropping them (needs one of the two limits above)" },
+	{ "eval-winner-traces", "", "Save sampled winning-side actions from five-minute regulation matches; tied matches are discarded" },
+	{ "eval-single-match", NULL, "Play exactly one five-minute match in one mode for game-by-game winner distillation; seed parity swaps sides" },
+	{ "eval-winner-policy-targets", NULL, "Also save winning policy distributions for the recorded actions/states; only during isolated winner matches" },
+	{ "eval-tactical-restart-prob", "0", "Winner-trace games: probability of a seeded tactical restart instead of a kickoff, 0 to 1" },
 	{ "eval-out", "", "Also write the evaluation results to this JSON file" },
 	{ "deterministic", NULL, "Evaluation: always pick the most likely action instead of sampling" },
 
@@ -2035,6 +2056,10 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 
 	// Which bot. If training continues from a checkpoint, it is the one that the checkpoint was made with
 	SelectBot(opt, FindNewestCheckpoint(opt.Str("checkpoints")));
+	if (opt.Has("distill-init-only") && (g_Bot.name != "foundation-policy-v1" || !FindNewestCheckpoint(opt.Str("checkpoints")).empty() || opt.Str("distill-teacher").empty()))
+		RG_ERR_CLOSE("Initialization requires an empty actor-only output and a compatible distillation teacher");
+	if (g_Bot.name == "foundation-policy-v1" && opt.Str("distill-teacher").empty())
+		RG_ERR_CLOSE("foundation-policy-v1 is actor-only and cannot run PPO; use distillation or evaluation");
 	std::filesystem::path teacherPath;
 	if (!opt.Str("distill-teacher").empty()) {
 		teacherPath = std::filesystem::weakly_canonical(ResolveCheckpoint(opt.Str("distill-teacher")));
@@ -2049,15 +2074,34 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 				RG_ERR_CLOSE("Existing student is not pinned to this teacher; use --distill-new-teacher to explicitly change it");
 		}
 		auto info = ReadCheckpointInfo(teacherPath);
-		if (g_Bot.name != "foundation-v1" || !info.count("model") || !info.count("obs") || info["obs"] != "MultiModeObs")
-			RG_ERR_CLOSE("Distillation requires foundation-v1 and a multimode teacher with model metadata");
+		if ((g_Bot.name != "foundation-v1" && g_Bot.name != "foundation-policy-v1" && !(g_Bot.name == "s" && opt.Has("distill-small-candidate"))) ||
+			!info.count("model") || !info.count("obs") || info["obs"] != "MultiModeObs")
+			RG_ERR_CLOSE("Distillation needs foundation-v1, or an explicitly permitted small candidate, and a multimode teacher");
+		if (g_Bot.name == "s") {
+			auto candidateRoot = std::filesystem::weakly_canonical("results/distillation-candidates");
+			auto rel = outputPath.lexically_relative(candidateRoot);
+			if (rel.empty() || *rel.begin() == "..")
+				RG_ERR_CLOSE("Small distillation outputs must be isolated under results/distillation-candidates");
+			if (previous.empty())
+				RG_ERR_CLOSE("Small candidates must start from a copied small checkpoint");
+		}
 		auto teacherModel = FindBotPreset(info["model"]);
 		if (!teacherModel.multiMode || !teacherModel.useSlotEncoder || !teacherModel.only1v1Of.empty())
 			RG_ERR_CLOSE("Teacher must use the full multimode pooled-slot observation and action contract");
 		if (std::filesystem::weakly_canonical(opt.Str("checkpoints")).string().find(std::filesystem::weakly_canonical("training-backup").string()) == 0)
 			RG_ERR_CLOSE("Distillation output must be outside training-backup");
-		if (opt.Int("distill-batch") <= 0 || opt.Int("distill-epochs") <= 0 || opt.Num("distill-teacher-rollout") < 0 || opt.Num("distill-teacher-rollout") > 1)
-			RG_ERR_CLOSE("Invalid distillation batch, epochs or teacher rollout probability");
+		if (opt.Int("distill-batch") <= 0 || opt.Int("distill-epochs") <= 0 || opt.Num("distill-teacher-rollout") < 0 || opt.Num("distill-teacher-rollout") > 1 ||
+			opt.Num("distill-replay-weight") < 0 || opt.Num("distill-replay-weight") > 1 ||
+			(opt.Num("distill-replay-weight") > 0 && opt.Str("distill-replay-in").empty()))
+			RG_ERR_CLOSE("Invalid distillation batch, epochs, rollout or replay settings");
+		if (!opt.Str("distill-replay-in").empty() && !std::filesystem::is_regular_file(opt.Str("distill-replay-in")))
+			RG_ERR_CLOSE("Distillation replay input does not exist");
+		if (!opt.Str("distill-replay-history").empty() && (opt.Str("distill-replay-in").empty() || !std::filesystem::is_regular_file(opt.Str("distill-replay-history"))))
+			RG_ERR_CLOSE("Historical replay requires a valid current and historical shard");
+		if (!opt.Str("distill-replay-history-dir").empty() && (opt.Str("distill-replay-in").empty() || !std::filesystem::is_directory(opt.Str("distill-replay-history-dir"))))
+			RG_ERR_CLOSE("Historical replay directory requires a valid current shard and directory");
+		if (!opt.Str("distill-replay-out").empty() && std::filesystem::exists(opt.Str("distill-replay-out")))
+			RG_ERR_CLOSE("Refusing to overwrite distillation replay");
 		if (opt.Has("distill-eval") && FindNewestCheckpoint(opt.Str("checkpoints")).empty())
 			RG_ERR_CLOSE("Distillation evaluation needs a saved student checkpoint");
 	} else if (opt.Has("distill-eval")) {
@@ -2356,6 +2400,12 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 	// Make the learner with the environment creation function and the config we just made
 	Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
 	learner->shouldAbortRating = []() { return g_StopSignals > 0; };
+	if (opt.Has("distill-init-only")) {
+		learner->Save();
+		RG_LOG("Initialized an untrained actor-only checkpoint; Total Timesteps: 0");
+		delete learner;
+		return EXIT_SUCCESS;
+	}
 
 	if (rateRounds > 0) {
 		if (learner->totalTimesteps == 0)
@@ -2403,7 +2453,19 @@ int RunTraining(const Options& opt, std::filesystem::path exeDir) {
 		transfer.useKLDiv = true;
 		transfer.lossScale = 90.f; // KL was averaged over 90 actions
 		transfer.evaluationOnly = opt.Has("distill-eval");
-		RG_LOG("Distilling teacher " << teacherPath << " into fixed foundation-v1; teacher rollout " << transfer.teacherRolloutChance);
+		transfer.replayInput = opt.Str("distill-replay-in");
+		transfer.replayHistory = opt.Str("distill-replay-history");
+		if (!opt.Str("distill-replay-history-dir").empty()) {
+			for (const auto& entry : std::filesystem::directory_iterator(opt.Str("distill-replay-history-dir")))
+				if (entry.is_regular_file() && entry.path().extension() == ".pt")
+					transfer.replayHistories.push_back(entry.path());
+			std::sort(transfer.replayHistories.begin(), transfer.replayHistories.end());
+			if (transfer.replayHistories.empty() || transfer.replayHistories.size() > 8)
+				RG_ERR_CLOSE("Historical replay directory must contain 1 to 8 .pt shards");
+		}
+		transfer.replayOutput = opt.Str("distill-replay-out");
+		transfer.replayWeight = (float)opt.Num("distill-replay-weight");
+		RG_LOG("Distilling teacher " << teacherPath << " into " << student.name << "; teacher rollout " << transfer.teacherRolloutChance);
 		learner->StartTransferLearn(transfer);
 	} else {
 		learner->Start();
@@ -2443,6 +2505,10 @@ struct EvalArena {
 	bool ballTouchedSinceKickoff = false;
 	bool needsReset = true;
 	bool active = true; // false: this game is over and no new one is started (see finishGames)
+	InferenceTrace episodeTraces[2];
+	float matchSeconds = 0;
+	int matchGoals[2] = {0, 0};
+	bool matchFinished = true; // At the first kickoff, and after regulation ends.
 };
 
 struct EvalResult {
@@ -2450,7 +2516,9 @@ struct EvalResult {
 	int numArenas = 0;
 	EvalSide sideA = {}, sideB = {};
 	uint64_t numEpisodes = 0, numTimeouts = 0, numMaxTimeEnds = 0;
+	uint64_t matchWins[2] = {0, 0}, matchDraws = 0;
 	double simMinutes = 0, realSeconds = 0;
+	InferenceTrace winnerTraces[2];
 };
 
 // Loads the policy of a checkpoint, with the observation and the network of the model that the checkpoint was made with.
@@ -2481,9 +2549,11 @@ InferUnit* MakeInferUnit(const Options& opt, std::filesystem::path checkpointPat
 //	the time each arena gets.
 EvalResult EvaluateMode(
 	int teamSize, InferUnit* unitA, InferUnit* unitB, ActionParser* actionParser,
-	int numArenas, double gameMinutes, bool deterministic, float noTouchTimeout, float maxSeconds, bool finishGames, std::mt19937& randEngine) {
+	int numArenas, double gameMinutes, bool deterministic, float noTouchTimeout, float maxSeconds, bool finishGames, std::mt19937& randEngine, bool captureWinners = false, float tacticalRestartProb = 0.f, bool singleMatchFlip = false) {
 
-	if (noTouchTimeout <= 0 && maxSeconds <= 0)
+	if (captureWinners)
+		finishGames = true; // Finish regulation, even when the aggregate time budget expires.
+	else if (noTouchTimeout <= 0 && maxSeconds <= 0)
 		finishGames = false; // Games might never end
 
 	EvalResult result = {};
@@ -2495,15 +2565,20 @@ EvalResult EvaluateMode(
 	std::vector<EvalArena> arenas(numArenas);
 	for (int i = 0; i < numArenas; i++) {
 		arenas[i].arena = MakeArena(teamSize);
-		arenas[i].teamA = (i % 2 == 0) ? Team::BLUE : Team::ORANGE;
+		// In a single-match run, seed parity alternates the side to avoid always using blue.
+		arenas[i].teamA = ((i + (singleMatchFlip ? 1 : 0)) % 2 == 0) ? Team::BLUE : Team::ORANGE;
 	}
 
 	const double stepsPerSecond = 120.0 / TICK_SKIP;
 	uint64_t targetGameSteps = (uint64_t)(gameMinutes * 60 * stepsPerSecond);
-	uint64_t gameSteps = 0;
+	uint64_t gameSteps = 0, traceTick = 0, winnerRowsSeen[2] = {0, 0};
+	// Separate RNG seeded from a copy, so sampling cannot perturb the simulated kickoffs.
+	auto traceSeedEngine = randEngine;
+	std::mt19937_64 traceRng(((uint64_t)traceSeedEngine() << 32) ^ traceSeedEngine() ^ (uint64_t)teamSize);
 
 	auto startTime = std::chrono::steady_clock::now();
 
+	TacticalStateSetter tacticalSetter;
 	int numActive = numArenas;
 	while (numActive > 0) {
 		bool timeUp = (gameSteps >= targetGameSteps);
@@ -2515,13 +2590,19 @@ EvalResult EvaluateMode(
 			if (!ea.needsReset || !ea.active)
 				continue;
 
-			if (timeUp) {
+			if (timeUp && (!captureWinners || ea.matchFinished)) {
 				ea.active = false;
 				numActive--;
 				continue;
 			}
 
-			ea.arena->ResetToRandomKickoff((int)(randEngine() & 0x7FFFFFFF));
+			if (captureWinners && tacticalRestartProb > 0.f && std::uniform_real_distribution<float>(0.f, 1.f)(randEngine) < tacticalRestartProb) {
+				// Tactical starts are explicitly opt-in training data, never standard audit games.
+				RocketSim::Math::GetRandEngine().seed(randEngine());
+				tacticalSetter.ResetArena(ea.arena);
+			} else {
+				ea.arena->ResetToRandomKickoff((int)(randEngine() & 0x7FFFFFFF));
+			}
 
 			// Move the cars a tiny bit (up to 1 of the ~118 units a car is long).
 			// Otherwise bots that always pick their most likely action would repeat the same few games.
@@ -2537,6 +2618,11 @@ EvalResult EvaluateMode(
 			ea.timeSinceTouch = 0;
 			ea.timeSinceKickoff = 0;
 			ea.ballTouchedSinceKickoff = false;
+			if (!captureWinners || ea.matchFinished) {
+				ea.episodeTraces[0] = {}; ea.episodeTraces[1] = {};
+				ea.matchSeconds = 0; ea.matchGoals[0] = 0; ea.matchGoals[1] = 0;
+				ea.matchFinished = false;
+			}
 			ea.needsReset = false;
 			result.numEpisodes++;
 		}
@@ -2567,8 +2653,21 @@ EvalResult EvaluateMode(
 			InferUnit* unit = (side == 0) ? unitA : unitB;
 
 			std::vector<Action> actions;
+			InferenceTrace batchTrace;
+			bool captureBatch = captureWinners && (traceTick % 5 == 0);
 			if (unit) {
-				actions = unit->BatchInferActions(players[side], states[side], deterministic);
+				actions = unit->BatchInferActions(players[side], states[side], deterministic, 1.f, captureBatch ? &batchTrace : nullptr);
+				if (captureBatch) {
+					int obsSize = unit->obsSize, numActions = unit->actionParser->GetActionAmount();
+					for (size_t k = 0; k < actions.size(); k++) {
+						auto& t = arenas[slots[side][k].first].episodeTraces[side];
+						if (t.actions.size() >= 4096) continue;
+						t.observations.insert(t.observations.end(), batchTrace.observations.begin() + k * obsSize, batchTrace.observations.begin() + (k + 1) * obsSize);
+						t.actionMasks.insert(t.actionMasks.end(), batchTrace.actionMasks.begin() + k * numActions, batchTrace.actionMasks.begin() + (k + 1) * numActions);
+						t.actionProbabilities.insert(t.actionProbabilities.end(), batchTrace.actionProbabilities.begin() + k * numActions, batchTrace.actionProbabilities.begin() + (k + 1) * numActions);
+						t.actions.push_back(batchTrace.actions[k]);
+					}
+				}
 			} else {
 				// Random (but valid) actions
 				for (int k = 0; k < players[side].size(); k++) {
@@ -2645,22 +2744,58 @@ EvalResult EvaluateMode(
 			}
 
 			ea.timeSinceKickoff += state.deltaTime;
+			ea.matchSeconds += state.deltaTime;
 
 			if (state.goalScored) {
 				// The ball is in the goal of the team that got scored on
 				Team scoredOnTeam = RS_TEAM_FROM_Y(state.ball.pos.y);
-				((scoredOnTeam != ea.teamA) ? sideA : sideB).goals++;
+				int winner = (scoredOnTeam != ea.teamA) ? 0 : 1;
+				(winner == 0 ? sideA : sideB).goals++;
+				ea.matchGoals[winner]++;
 				ea.needsReset = true;
-			} else if (noTouchTimeout > 0 && ea.timeSinceTouch >= noTouchTimeout) {
+			} else if (!captureWinners && noTouchTimeout > 0 && ea.timeSinceTouch >= noTouchTimeout) {
 				result.numTimeouts++;
 				ea.needsReset = true;
-			} else if (maxSeconds > 0 && ea.timeSinceKickoff >= maxSeconds) {
+			} else if (!captureWinners && maxSeconds > 0 && ea.timeSinceKickoff >= maxSeconds) {
 				result.numMaxTimeEnds++;
 				ea.needsReset = true;
+			}
+			// Five simulated minutes of regulation, resetting only the kickoff after goals.
+			// Ties and incomplete matches never produce winner labels.
+			if (captureWinners && ea.matchSeconds >= 300.f) {
+				ea.matchFinished = true;
+				ea.needsReset = true;
+				if (ea.matchGoals[0] == ea.matchGoals[1]) {
+					result.matchDraws++;
+				} else {
+					int winner = ea.matchGoals[0] > ea.matchGoals[1] ? 0 : 1;
+					result.matchWins[winner]++;
+					auto& source = ea.episodeTraces[winner];
+					auto& dest = result.winnerTraces[winner];
+					int obsSize = unitA->obsSize, numActions = unitA->actionParser->GetActionAmount();
+					for (size_t k = 0; k < source.actions.size(); k++) {
+						uint64_t seen = ++winnerRowsSeen[winner];
+						if (dest.actions.size() < 32768) {
+							dest.observations.insert(dest.observations.end(), source.observations.begin() + k * obsSize, source.observations.begin() + (k + 1) * obsSize);
+							dest.actionMasks.insert(dest.actionMasks.end(), source.actionMasks.begin() + k * numActions, source.actionMasks.begin() + (k + 1) * numActions);
+							dest.actionProbabilities.insert(dest.actionProbabilities.end(), source.actionProbabilities.begin() + k * numActions, source.actionProbabilities.begin() + (k + 1) * numActions);
+							dest.actions.push_back(source.actions[k]);
+						} else {
+							// Uniform bounded reservoir avoids over-representing early games.
+							auto slot = std::uniform_int_distribution<uint64_t>(0, seen - 1)(traceRng);
+							if (slot >= 32768) continue;
+							std::copy_n(source.observations.begin() + k * obsSize, obsSize, dest.observations.begin() + slot * obsSize);
+							std::copy_n(source.actionMasks.begin() + k * numActions, numActions, dest.actionMasks.begin() + slot * numActions);
+							std::copy_n(source.actionProbabilities.begin() + k * numActions, numActions, dest.actionProbabilities.begin() + slot * numActions);
+							dest.actions[slot] = source.actions[k];
+						}
+					}
+				}
 			}
 		}
 
 		gameSteps += numActive;
+		traceTick++;
 	}
 
 	for (auto& ea : arenas)
@@ -2683,9 +2818,17 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	float noTouchTimeout = RS_MAX((float)opt.Num("eval-no-touch-timeout"), 0.f);
 	float maxSeconds = RS_MAX((float)opt.Num("eval-max-seconds"), 0.f);
 	bool finishGames = opt.Has("eval-finish-games");
-	int numArenas = RS_MAX((int)opt.Int("eval-arenas"), 2);
-	numArenas += numArenas % 2; // Even amount, so both sides play as blue and as orange equally often
-	double gameMinutes = opt.Num("eval-minutes");
+	float tacticalRestartProb = (float)opt.Num("eval-tactical-restart-prob");
+	if (tacticalRestartProb < 0.f || tacticalRestartProb > 1.f ||
+		(tacticalRestartProb > 0.f && opt.Str("eval-winner-traces").empty()))
+		RG_ERR_CLOSE("Tactical restarts require winner traces and a probability between 0 and 1");
+	bool singleMatch = opt.Has("eval-single-match");
+	if ((singleMatch || opt.Has("eval-winner-policy-targets")) && opt.Str("eval-winner-traces").empty())
+		RG_ERR_CLOSE("Single matches and policy targets require winner traces");
+	int numArenas = singleMatch ? 1 : RS_MAX((int)opt.Int("eval-arenas"), 2);
+	if (!singleMatch) numArenas += numArenas % 2; // Side-balanced ordinary evaluation
+	// A positive budget shorter than regulation prevents starting a second match.
+	double gameMinutes = singleMatch ? 0.1 : opt.Num("eval-minutes");
 
 	// The same seed gives the same kickoffs, the same random actions and the same sampled actions
 	int64_t seed = opt.Int("seed");
@@ -2711,8 +2854,25 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	InferUnit* unitA = MakeInferUnit(opt, pathA, false, "eval-mirror");
 	modelA = g_Bot.name;
 
+	std::filesystem::path traceDir;
+	if (!opt.Str("eval-winner-traces").empty()) {
+		traceDir = std::filesystem::weakly_canonical(opt.Str("eval-winner-traces"));
+		auto root = std::filesystem::weakly_canonical("results/distillation-candidates");
+		auto rel = traceDir.lexically_relative(root);
+		if (rel.empty() || *rel.begin() == ".." || rel == "." || std::filesystem::exists(traceDir))
+			RG_ERR_CLOSE("Winner traces need a new directory under results/distillation-candidates");
+		auto isLargeFoundation = [](const std::string& model) { return model == "foundation-v1" || model == "foundation-policy-v1"; };
+		if (!unitB || !((modelA == "s" && isLargeFoundation(modelB)) || (isLargeFoundation(modelA) && modelB == "s")) ||
+			unitA->obsSize != unitB->obsSize || unitA->actionParser->GetActionAmount() != unitB->actionParser->GetActionAmount() ||
+			ResolveMirrorX(opt, "eval-mirror", pathA) != ResolveMirrorX(opt, "vs-mirror", pathB))
+			RG_ERR_CLOSE("Winner traces require matching mirrored full multimode s/foundation-v1 contracts");
+		std::filesystem::create_directories(traceDir);
+	}
+
 	// The game modes that both sides can play
 	std::vector<int> teamSizes = ParseModes(opt.Str("eval-modes"), "eval-modes");
+	if (singleMatch && teamSizes.size() != 1)
+		RG_ERR_CLOSE("--eval-single-match requires exactly one game mode");
 	if (!multiModeB) {
 		if (opt.Str("eval-modes") != "auto" && teamSizes != std::vector<int>{ 1 })
 			RG_ERR_CLOSE("Option --eval-modes: the model \"" << modelB << "\" of the opponent only plays 1v1");
@@ -2725,11 +2885,45 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 	RG_LOG("\t" << gameMinutes << " minutes of game time in each of " << ModeNames(teamSizes) << ", " << numArenas << " games at once, " << (deterministic ? "deterministic" : "sampled") << " actions");
 
 	std::vector<EvalResult> results = {};
+	InferenceTrace combinedWinnerTraces[2];
 	for (int teamSize : teamSizes) {
-		EvalResult result = EvaluateMode(teamSize, unitA, unitB, actionParser, numArenas, gameMinutes, deterministic, noTouchTimeout, maxSeconds, finishGames, randEngine);
+		EvalResult result = EvaluateMode(teamSize, unitA, unitB, actionParser, numArenas, gameMinutes, deterministic, noTouchTimeout, maxSeconds, finishGames, randEngine, !traceDir.empty(), tacticalRestartProb, singleMatch && (seed & 1));
+		if (!traceDir.empty()) {
+			for (int side = 0; side < 2; side++) {
+				const auto& trace = result.winnerTraces[side];
+				if (trace.actions.empty()) continue;
+				auto path = traceDir / (ModeName(teamSize) + (side == 0 ? "-winner-a.pt" : "-winner-b.pt"));
+				InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), path);
+				if (opt.Has("eval-winner-policy-targets"))
+					InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), traceDir / (ModeName(teamSize) + (side == 0 ? "-winner-a-policy.pt" : "-winner-b-policy.pt")), true);
+				auto& combined = combinedWinnerTraces[side];
+				int obsSize = unitA->obsSize, numActions = unitA->actionParser->GetActionAmount();
+				// Spread bounded samples across all completed matches instead of retaining
+				// only the first arenas. This matters when a phase runs many games.
+				size_t count = std::min<size_t>(trace.actions.size(), 16384);
+				for (size_t i = 0; i < count; i++) {
+					size_t k = i * trace.actions.size() / count;
+					combined.observations.insert(combined.observations.end(), trace.observations.begin() + k * obsSize, trace.observations.begin() + (k + 1) * obsSize);
+					combined.actionMasks.insert(combined.actionMasks.end(), trace.actionMasks.begin() + k * numActions, trace.actionMasks.begin() + (k + 1) * numActions);
+					combined.actionProbabilities.insert(combined.actionProbabilities.end(), trace.actionProbabilities.begin() + k * numActions, trace.actionProbabilities.begin() + (k + 1) * numActions);
+					combined.actions.push_back(trace.actions[k]);
+				}
+				RG_LOG("Winner trace " << path << ": " << trace.actions.size() << " sampled actions from winning regulation matches");
+			}
+		}
 		result.sideA.name = nameA;
 		result.sideB.name = nameB;
-		results.push_back(result);
+		results.push_back(std::move(result));
+	}
+	if (!traceDir.empty()) {
+		for (int side = 0; side < 2; side++) {
+			const auto& trace = combinedWinnerTraces[side];
+			if (!trace.actions.empty()) {
+				InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), traceDir / (side == 0 ? "winner-a.pt" : "winner-b.pt"));
+				if (opt.Has("eval-winner-policy-targets"))
+					InferUnit::SaveInferenceTrace(trace, unitA->obsSize, unitA->actionParser->GetActionAmount(), traceDir / (side == 0 ? "winner-a-policy.pt" : "winner-b-policy.pt"), true);
+			}
+		}
 	}
 
 	// Show the results
@@ -2745,6 +2939,8 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 
 		printf("\n--- %s ---\n", ModeName(result.teamSize).c_str());
 		printf("Simulated %.1f minutes of game time in %.1f seconds (%d games at once, sides swapped in half of them)\n", result.simMinutes, result.realSeconds, result.numArenas);
+		if (!traceDir.empty())
+			printf("Five-minute match results: A %llu, B %llu, drawn %llu\n", (unsigned long long)result.matchWins[0], (unsigned long long)result.matchWins[1], (unsigned long long)result.matchDraws);
 		printf("Kickoffs played: %llu", (unsigned long long)result.numEpisodes);
 		if (noTouchTimeout > 0)
 			printf(" (%llu ended without a goal after %.0fs with no touch)", (unsigned long long)result.numTimeouts, noTouchTimeout);
@@ -2785,12 +2981,22 @@ int RunEvaluation(const Options& opt, std::filesystem::path exeDir) {
 
 			json j = {};
 			j["mode"] = ModeName(result.teamSize);
+			j["num_arenas"] = result.numArenas;
+			j["single_match"] = singleMatch;
+			if (singleMatch) j["side_a_team"] = (seed & 1) ? "orange" : "blue";
 			j["a"] = fnSideJSON(result.sideA);
 			j["b"] = fnSideJSON(result.sideB);
 			j["game_minutes"] = result.simMinutes;
 			j["a"]["model"] = modelA;
 			j["b"]["model"] = modelB;
 			j["kickoffs"] = result.numEpisodes;
+			if (!traceDir.empty()) {
+				j["match_seconds"] = 300;
+				j["tactical_restart_probability"] = tacticalRestartProb;
+				j["match_wins_a"] = result.matchWins[0];
+				j["match_wins_b"] = result.matchWins[1];
+				j["match_draws"] = result.matchDraws;
+			}
 			j["no_touch_timeouts"] = result.numTimeouts;
 			j["max_seconds_ends"] = result.numMaxTimeEnds;
 			j["no_touch_timeout"] = noTouchTimeout;

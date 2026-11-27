@@ -1,0 +1,17 @@
+{
+  "candidate_promoted": false,
+  "files": {
+    "audit-current-20271219.json": "b10602e4302fd7e9c89959ef3cb942cfb7fe4e36e66600eecb4a9a8ffcd7db63",
+    "audit-current-20271519.json": "2466b4bfd4b655d75434141291e1a4a4c4724fa087651bb8427ad29008a96c94",
+    "audit-old-20271219.json": "cf96e0cef4dd4ce7dbb31d077a219e3284427bca05dc67e3b3dce18defddb159",
+    "audit-old-20271519.json": "62a0dc823c36f174ecc28564ff4ec38b8b7458846e61a2f3e33f4fbe852ae639",
+    "full-match-small-20272601.json": "befd5de58bebf198aed27c6e97c8fc4e0d7d2029f9bf324d42c4e6aca16eb20d",
+    "imitation-20272412.json": "6db5fb1a260b396325c4bb19da8a23bcb20844627d2dcb0a2fdb47d97ba07a3a"
+  },
+  "full_match_seed": 20272601,
+  "kickoff_seeds": [
+    20271219,
+    20271519
+  ],
+  "protocol": "side-balanced first-goal kickoff episodes and 48 five-minute matches per mode; no promotion"
+}
