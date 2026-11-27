@@ -2861,7 +2861,7 @@
     "stage": 64,
     "start_steps": 7316520927,
     "seconds": 0,
-    "wall_seconds": 420.0745125099993,
+    "wall_seconds": 1804.4407486340006,
     "trained": false
   },
   "status": "paused",
